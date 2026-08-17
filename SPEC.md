@@ -48,6 +48,10 @@ Variables, defaults, meaning (all plain numbers):
 | MFU | 0.4 | assumed model FLOPs utilization for wall-clock estimates |
 | podSize | 8960 | chips per ICI domain (pod: a full TPU v5p SuperPod; the NVLink domain under GPU presets) |
 | gpu | 0 | 0 = TPU-style mesh, 1 = GPU switched fabric (set by hardware presets) |
+| meas | 0 | 0 = spec numbers, 1 = measured: expressions/widgets see C·effC, Wici·effIci, Wdcn·effDcn; spec stays scrubbable and reachable as Cspec/WiciSpec/WdcnSpec |
+| effC | 0.72 | sustained GEMM fraction of spec peak (per-preset, from SOURCES.md) |
+| effIci | 0.95 | achieved collective fraction of spec in-pod bandwidth |
+| effDcn | 0.90 | achieved fraction of spec cross-pod bandwidth |
 | E | 1 | MoE: routed experts per layer (1 = dense); set by model presets |
 | k | 1 | MoE: experts activated per token (routed top-k; shared experts are folded into F, not k) |
 | EP | 8 | expert-parallel degree (chapter-12 calls this axis Z) |
@@ -61,7 +65,7 @@ Variables, defaults, meaning (all plain numbers):
    C spec/measured · W_link · W_scale-out · HBM; every cell carries a data-tip
    citing its source verbatim from SOURCES.md; ≈ marks estimates. All spec
    numbers currently in presets must be reconciled against SOURCES.md.
-③ Measured mode: state keys meas (0/1, machine-bar segmented control in the
+③ DONE (top-bar seg control; effState() view for expressions+widgets; MFU wall-clock exprs pinned to Cspec; provenance rows carry factors + live factor scrubs) — was: Measured mode: state keys meas (0/1, machine-bar segmented control in the
    Hardware group), effC/effIci/effDcn (defaults 1, set per hardware preset from
    SOURCES.md). Derived effective values Ce/Wie/Wde = raw × (meas ? eff : 1);
    alpha and alphaDcn are redefined on effective values; the formula sweep moves

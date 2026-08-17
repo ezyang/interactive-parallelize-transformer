@@ -31,16 +31,19 @@
   </span>
   <span class="group"><span class="glabel">Hardware</span>
     <select id="hw-preset" aria-label="hardware preset">
-      <option value='{"C":4.59e14,"Wici":1.8e11,"Wdcn":6.25e9,"HBM":9.6e10,"podSize":8960,"gpu":0,"MDP":2,"MTP":1}'>TPU v5p</option>
-      <option value='{"C":1.97e14,"Wici":9e10,"Wdcn":3.125e9,"HBM":1.6e10,"podSize":256,"gpu":0,"MDP":2,"MTP":1}'>TPU v5e</option>
-      <option value='{"C":9.9e14,"Wici":4.5e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1}'>H100 (8-GPU node)</option>
-      <option value='{"C":2.25e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.8e11,"podSize":8,"gpu":1,"MDP":1,"MTP":1}'>B200 (8-GPU node)</option>
-      <option value='{"C":2.5e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.86e11,"podSize":72,"gpu":1,"MDP":1,"MTP":1}'>GB200 NVL72</option>
-      <option value='{"C":2.5e15,"Wici":9e11,"Wdcn":1e11,"HBM":2.88e11,"podSize":72,"gpu":1,"MDP":1,"MTP":1}'>GB300 NVL72</option>
+      <option value='{"C":4.59e14,"Wici":1.8e11,"Wdcn":6.25e9,"HBM":9.6e10,"podSize":8960,"gpu":0,"MDP":2,"MTP":1,"effC":0.72,"effIci":0.95,"effDcn":0.90}'>TPU v5p</option>
+      <option value='{"C":1.97e14,"Wici":9e10,"Wdcn":3.125e9,"HBM":1.6e10,"podSize":256,"gpu":0,"MDP":2,"MTP":1,"effC":0.67,"effIci":0.95,"effDcn":0.90}'>TPU v5e</option>
+      <option value='{"C":9.9e14,"Wici":4.5e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1,"effC":0.73,"effIci":0.82,"effDcn":0.85}'>H100 (8-GPU node)</option>
+      <option value='{"C":2.25e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.8e11,"podSize":8,"gpu":1,"MDP":1,"MTP":1,"effC":0.69,"effIci":0.82,"effDcn":0.85}'>B200 (8-GPU node)</option>
+      <option value='{"C":2.5e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.86e11,"podSize":72,"gpu":1,"MDP":1,"MTP":1,"effC":0.70,"effIci":0.82,"effDcn":0.85}'>GB200 NVL72</option>
+      <option value='{"C":2.5e15,"Wici":9e11,"Wdcn":1e11,"HBM":2.88e11,"podSize":72,"gpu":1,"MDP":1,"MTP":1,"effC":0.70,"effIci":0.82,"effDcn":0.85}'>GB300 NVL72</option>
       <option value="custom">custom…</option>
     </select>
-    <span class="v v-C">C</span>=<span class="t-var" data-var="C" data-min="1e13" data-max="5e15" data-scale="log" data-fmt="flops"></span>
-    <span class="v v-W">W<span class="t-show inline" data-expr="1-gpu"><sub>ici</sub></span><span class="t-show inline" data-expr="gpu"><sub>gpu</sub></span></span>=<span class="t-var" data-var="Wici" data-min="1e10" data-max="2e12" data-scale="log" data-fmt="bw"></span>
+    <span class="v v-C">C</span>=<span class="t-var" data-var="C" data-min="1e13" data-max="5e15" data-scale="log" data-fmt="flops"></span><span class="t-show inline eff-out" data-expr="meas">→<span class="t-out" data-expr="C" data-fmt="flops"></span></span>
+    <span class="v v-W">W<span class="t-show inline" data-expr="1-gpu"><sub>ici</sub></span><span class="t-show inline" data-expr="gpu"><sub>gpu</sub></span></span>=<span class="t-var" data-var="Wici" data-min="1e10" data-max="2e12" data-scale="log" data-fmt="bw"></span><span class="t-show inline eff-out" data-expr="meas">→<span class="t-out" data-expr="Wici" data-fmt="bw"></span></span>
+    <span class="seg" role="group" aria-label="spec or measured numbers" data-tip="Spec: vendor peak numbers. Measured: sustained compute and achieved bandwidth (spec × the cited efficiency factors — see the hardware table by the notation section; scrub the factors in its live row). TPUs sustain closer to peak than power-throttled NVIDIA GPUs.">
+      <button class="seg-opt" data-meas="0">spec</button><button class="seg-opt" data-meas="1">measured</button>
+    </span>
   </span>
   <span class="group"><span class="glabel">Batch</span>
     <span class="v v-B">B</span>=<span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span> tokens
@@ -252,8 +255,13 @@ latent width.</span></span></td>
   benchmarks; retrieved 2026-08-17. ≈ marks factors that are <em>estimates</em>
   (stated basis, no direct public measurement) rather than measured.</span></span>
   Hover any cell for its citation. The <em>sustained</em> and <em>achieved</em>
-  columns are the measured fractions of spec — they become live when you flip the
-  spec/measured control (coming to the top bar).</p>
+  columns are the measured fractions of spec: flip the top bar's
+  <strong>spec / measured</strong> control and every equation on the page derates
+  by them (compute × sustained, bandwidth × achieved — the loaded hardware's row
+  shows them as live green scrubs). Wall-clock estimates that already assume an
+  MFU keep using spec peak, so nothing double-counts. Notice the punchline the
+  citations force: TPUs sustain far closer to their paper numbers than the
+  power-throttled NVIDIA parts.</p>
   <div class="tbl-wrap"><table class="tbl tbl-compact sortable">
     <thead><tr>
       <th data-tip="Click to load this hardware into the page (the top bar follows).">Hardware</th>
@@ -265,53 +273,53 @@ latent width.</span></span></td>
       <th class="num" data-tip="HBM capacity per chip. B200: 180 GB per DGX shipping datasheet (1,440 GB ÷ 8) — 192 GB was the announcement figure. GB200: 186 GB (rack 13.4 TB ÷ 72). v5p: book's 96 GB; Google's page says 95 GiB.">HBM</th>
     </tr></thead>
     <tbody>
-      <tr><td><button class="t-preset" data-set='{"C":4.59e14,"Wici":1.8e11,"Wdcn":6.25e9,"HBM":9.6e10,"podSize":8960,"gpu":0,"MDP":2,"MTP":1}'>TPU v5p</button></td>
+      <tr><td><button class="t-preset" data-set='{"C":4.59e14,"Wici":1.8e11,"Wdcn":6.25e9,"HBM":9.6e10,"podSize":8960,"gpu":0,"MDP":2,"MTP":1,"effC":0.72,"effIci":0.95,"effDcn":0.90}'>TPU v5p</button></td>
         <td class="num" data-tip="Google Cloud v5p docs: “Peak compute per chip (BF16): 459 TFLOPs” (2026-08-17).">459 TF</td>
-        <td class="num" data-tip="ESTIMATE (lower bound): MaxText end-to-end 328 TFLOP/chip/s = 71.5% of peak INCLUDING comms (pinned MaxText README commit). Pure-matmul sustained is higher but unpublished.">≈0.72</td>
+        <td class="num" data-live="effC" data-tip="ESTIMATE (lower bound): MaxText end-to-end 328 TFLOP/chip/s = 71.5% of peak INCLUDING comms (pinned MaxText README commit). Pure-matmul sustained is higher but unpublished.">≈0.72</td>
         <td class="num" data-tip="The book: 90 GB/s per direction per axis (1.8e11 bidirectional). Google’s page says 1200 GBps per chip (100 GB/s per direction × 6 links); the book’s footnote explains the operational de-rate.">180 GB/s</td>
-        <td class="num" data-tip="ESTIMATE: the value is already the book’s de-rated operational figure, and the book’s Appendix B measures TPU AllReduce reaching peak at much smaller messages than GPUs.">≈0.95</td>
+        <td class="num" data-live="effIci" data-tip="ESTIMATE: the value is already the book’s de-rated operational figure, and the book’s Appendix B measures TPU AllReduce reaching peak at much smaller messages than GPUs.">≈0.95</td>
         <td class="num" data-tip="Google Cloud v5p docs: “DCN bandwidth per chip: 50 Gbps” = 6.25 GB/s (2026-08-17).">6.25 GB/s</td>
         <td class="num" data-tip="The book: 96 GB. Google’s page: “HBM capacity per chip: 95 GiB”. We keep the book’s (smaller in bytes, conservative for fit checks).">96 GB</td></tr>
-      <tr><td><button class="t-preset" data-set='{"C":1.97e14,"Wici":9e10,"Wdcn":3.125e9,"HBM":1.6e10,"podSize":256,"gpu":0,"MDP":2,"MTP":1}'>TPU v5e</button></td>
+      <tr><td><button class="t-preset" data-set='{"C":1.97e14,"Wici":9e10,"Wdcn":3.125e9,"HBM":1.6e10,"podSize":256,"gpu":0,"MDP":2,"MTP":1,"effC":0.67,"effIci":0.95,"effDcn":0.90}'>TPU v5e</button></td>
         <td class="num" data-tip="Google Cloud v5e docs: “Peak compute per chip (bf16): 197 TFLOPs” (2026-08-17).">197 TF</td>
-        <td class="num" data-tip="ESTIMATE (lower bound): MaxText end-to-end 132 TFLOP/chip/s = 67% of peak including comms.">≈0.67</td>
+        <td class="num" data-live="effC" data-tip="ESTIMATE (lower bound): MaxText end-to-end 132 TFLOP/chip/s = 67% of peak including comms.">≈0.67</td>
         <td class="num" data-tip="The book: 45 GB/s per direction per link (9e10 bidirectional); Google’s page implies 100 GB/s bidi per port.">90 GB/s</td>
-        <td class="num" data-tip="ESTIMATE: as v5p; the book’s Appendix B all-gather measurement is on a v5e 8×16.">≈0.95</td>
+        <td class="num" data-live="effIci" data-tip="ESTIMATE: as v5p; the book’s Appendix B all-gather measurement is on a v5e 8×16.">≈0.95</td>
         <td class="num" data-tip="Google Cloud v5e docs: 2 × 100 Gbps NICs per 8-chip host = 25 Gbps = 3.125 GB/s per chip (2026-08-17).">3.13 GB/s</td>
         <td class="num" data-tip="Google Cloud v5e docs: “HBM capacity per chip: 16 GB” (2026-08-17).">16 GB</td></tr>
-      <tr><td><button class="t-preset" data-set='{"C":9.9e14,"Wici":4.5e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1}'>H100 (8-GPU node)</button></td>
+      <tr><td><button class="t-preset" data-set='{"C":9.9e14,"Wici":4.5e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1,"effC":0.73,"effIci":0.82,"effDcn":0.85}'>H100 (8-GPU node)</button></td>
         <td class="num" data-tip="NVIDIA H100 page: “BFLOAT16 Tensor Core: 1,979 teraFLOPS — with sparsity” → dense 989.5 TFLOP/s (2026-08-17).">989 TF</td>
-        <td class="num" data-tip="MEASURED: 720/989.5 TFLOP/s bf16 on realistic LLM GEMM shapes (SemiAnalysis, MI300X vs H100 vs H200 Part 1). Best-shape ceiling 794.5 (stas00 MAMF).">0.73</td>
+        <td class="num" data-live="effC" data-tip="MEASURED: 720/989.5 TFLOP/s bf16 on realistic LLM GEMM shapes (SemiAnalysis, MI300X vs H100 vs H200 Part 1). Best-shape ceiling 794.5 (stas00 MAMF).">0.73</td>
         <td class="num" data-tip="NVIDIA: “NVLink: 900 GB/s” bidirectional → 450 GB/s per direction. Book: 18 links × 25 GB/s.">450 GB/s</td>
-        <td class="num" data-tip="MEASURED: the book’s benchmark — ~370 GB/s effective AllReduce vs 450 claimed (8×H100, SHARP off), and only at ~10 GB messages; 58 MB messages reach ~150 GB/s.">0.82</td>
+        <td class="num" data-live="effIci" data-tip="MEASURED: the book’s benchmark — ~370 GB/s effective AllReduce vs 450 claimed (8×H100, SHARP off), and only at ~10 GB messages; 58 MB messages reach ~150 GB/s.">0.82</td>
         <td class="num" data-tip="DGX H100: 8 × ConnectX-7 400 Gb/s = 50 GB/s per GPU (2026-08-17).">50 GB/s</td>
         <td class="num" data-tip="NVIDIA H100 spec: 80 GB HBM3, 3.35 TB/s (2026-08-17).">80 GB</td></tr>
-      <tr><td><button class="t-preset" data-set='{"C":2.25e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.8e11,"podSize":8,"gpu":1,"MDP":1,"MTP":1}'>B200 (8-GPU node)</button></td>
+      <tr><td><button class="t-preset" data-set='{"C":2.25e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.8e11,"podSize":8,"gpu":1,"MDP":1,"MTP":1,"effC":0.69,"effIci":0.82,"effDcn":0.85}'>B200 (8-GPU node)</button></td>
         <td class="num" data-tip="NVIDIA HGX B200: “FP16/BF16: 36 PFLOPS — specification in sparse; dense is ½” → 36/8/2 = 2.25 PFLOP/s per GPU (2026-08-17).">2.25 PF</td>
-        <td class="num" data-tip="MEASURED: cuBLAS 1448–1562 TFLOP/s on Llama-7B FFN GEMM shapes = 0.64–0.69 of 2250 (arXiv 2604.23466); best-shape 0.776 (stas00 MAMF).">0.69</td>
+        <td class="num" data-live="effC" data-tip="MEASURED: cuBLAS 1448–1562 TFLOP/s on Llama-7B FFN GEMM shapes = 0.64–0.69 of 2250 (arXiv 2604.23466); best-shape 0.776 (stas00 MAMF).">0.69</td>
         <td class="num" data-tip="NVIDIA: NVLink 5, 1.8 TB/s bidirectional → 900 GB/s per direction (2026-08-17).">900 GB/s</td>
-        <td class="num" data-tip="ESTIMATE: inherits H100’s measured NCCL ratio; no independent 8×B200 nccl-tests published as of 2026-08-17.">≈0.82</td>
+        <td class="num" data-live="effIci" data-tip="ESTIMATE: inherits H100’s measured NCCL ratio; no independent 8×B200 nccl-tests published as of 2026-08-17.">≈0.82</td>
         <td class="num" data-tip="DGX B200: 8 × ConnectX-7 400 Gb/s = 50 GB/s per GPU (2026-08-17).">50 GB/s</td>
         <td class="num" data-tip="DGX B200 datasheet: “1,440 GB total” ÷ 8 = 180 GB HBM3e per GPU. 192 GB was the announcement figure, still echoed elsewhere.">180 GB</td></tr>
-      <tr><td><button class="t-preset" data-set='{"C":2.5e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.86e11,"podSize":72,"gpu":1,"MDP":1,"MTP":1}'>GB200 NVL72</button></td>
+      <tr><td><button class="t-preset" data-set='{"C":2.5e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.86e11,"podSize":72,"gpu":1,"MDP":1,"MTP":1,"effC":0.70,"effIci":0.82,"effDcn":0.85}'>GB200 NVL72</button></td>
         <td class="num" data-tip="NVIDIA GB200 NVL72: “FP16/BF16: 360 PFLOPS — sparse; dense is one-half” → 360/72/2 = 2.5 PFLOP/s per GPU. Higher than HGX B200: the NVL72’s GPUs run a higher (liquid-cooled) power limit.">2.5 PF</td>
-        <td class="num" data-tip="ESTIMATE: best-shape 1822/2500 = 0.729 (stas00 MAMF, GB200); realistic shapes typically ~7 pts lower per the H100 pattern.">≈0.70</td>
+        <td class="num" data-live="effC" data-tip="ESTIMATE: best-shape 1822/2500 = 0.729 (stas00 MAMF, GB200); realistic shapes typically ~7 pts lower per the H100 pattern.">≈0.70</td>
         <td class="num" data-tip="NVIDIA: NVLink 5, 1.8 TB/s GPU-to-GPU bidirectional; rack total 130 TB/s (2026-08-17).">900 GB/s</td>
-        <td class="num" data-tip="ESTIMATE: inherits H100’s ratio. An operator validation target of ~900 GB/s busbw at 256 MB with in-network reduction suggests large-message performance may be higher; no independent rack benchmark published.">≈0.82</td>
+        <td class="num" data-live="effIci" data-tip="ESTIMATE: inherits H100’s ratio. An operator validation target of ~900 GB/s busbw at 256 MB with in-network reduction suggests large-message performance may be higher; no independent rack benchmark published.">≈0.82</td>
         <td class="num" data-tip="Reference design carries one ConnectX-7 400 Gb/s per GPU (the NVL72 page names Quantum-X800/Spectrum-X but prints no per-GPU figure) — mildly ESTIMATE.">≈50 GB/s</td>
         <td class="num" data-tip="NVIDIA GB200 NVL72 spec: rack “13.4 TB HBM3E” ÷ 72 = 186 GB per GPU (2026-08-17).">186 GB</td></tr>
-      <tr><td><button class="t-preset" data-set='{"C":2.5e15,"Wici":9e11,"Wdcn":1e11,"HBM":2.88e11,"podSize":72,"gpu":1,"MDP":1,"MTP":1}'>GB300 NVL72</button></td>
+      <tr><td><button class="t-preset" data-set='{"C":2.5e15,"Wici":9e11,"Wdcn":1e11,"HBM":2.88e11,"podSize":72,"gpu":1,"MDP":1,"MTP":1,"effC":0.70,"effIci":0.82,"effDcn":0.85}'>GB300 NVL72</button></td>
         <td class="num" data-tip="NVIDIA GB300 NVL72: “FP16/BF16: 360 PFLOPS — with sparsity” → 2.5 PFLOP/s dense per GPU; Blackwell Ultra’s uplift is in NVFP4, not bf16 (2026-08-17).">2.5 PF</td>
-        <td class="num" data-tip="ESTIMATE: B300 best-shape 1769 TFLOP/s (stas00 MAMF) = 0.71 of the rack-spec peak; no GB300-specific GEMM benchmark exists yet.">≈0.70</td>
+        <td class="num" data-live="effC" data-tip="ESTIMATE: B300 best-shape 1769 TFLOP/s (stas00 MAMF) = 0.71 of the rack-spec peak; no GB300-specific GEMM benchmark exists yet.">≈0.70</td>
         <td class="num" data-tip="NVIDIA: same fifth-gen NVLink as GB200 — 1.8 TB/s bidirectional per GPU pair (2026-08-17).">900 GB/s</td>
-        <td class="num" data-tip="ESTIMATE: inherits H100’s ratio; nothing citable for GB300 collectives as of 2026-08-17.">≈0.82</td>
+        <td class="num" data-live="effIci" data-tip="ESTIMATE: inherits H100’s ratio; nothing citable for GB300 collectives as of 2026-08-17.">≈0.82</td>
         <td class="num" data-tip="NVIDIA GB300 NVL72: two ConnectX-8 per Superchip — “800 Gb/s of network connectivity for each GPU” = 100 GB/s (2026-08-17).">100 GB/s</td>
         <td class="num" data-tip="NVIDIA GB300 NVL72 spec: rack “20 TB” HBM3E ÷ 72 ≈ 288 GB per GPU (2026-08-17).">288 GB</td></tr>
-      <tr><td><button class="t-preset" data-set='{"C":9.9e14,"Wici":2e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1}'>H800 (DeepSeek)</button></td>
+      <tr><td><button class="t-preset" data-set='{"C":9.9e14,"Wici":2e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1,"effC":0.73,"effIci":0.80,"effDcn":0.85}'>H800 (DeepSeek)</button></td>
         <td class="num" data-tip="989.43 TFLOP/s dense bf16 — same Hopper tensor cores as H100 (export variant cut NVLink and FP64, not matmul). No vendor datasheet is public; secondary spec databases + the book agree.">989 TF</td>
-        <td class="num" data-tip="ESTIMATE: identical silicon to H100’s measured 0.73; DeepSeek-V3’s reported training throughput is consistent.">≈0.73</td>
+        <td class="num" data-live="effC" data-tip="ESTIMATE: identical silicon to H100’s measured 0.73; DeepSeek-V3’s reported training throughput is consistent.">≈0.73</td>
         <td class="num" data-tip="Spec: 400 GB/s bidirectional → 200 GB/s per direction. NOTE: the book says “300GB/s”, which matches neither this spec nor DeepSeek’s measurement — see the note at the DeepSeek example in the GPU section.">200 GB/s</td>
-        <td class="num" data-tip="MEASURED: DeepSeek-V3 technical report — “NVLink offers a bandwidth of 160 GB/s” usable = 0.80 of the 200 GB/s per-direction spec.">0.80</td>
+        <td class="num" data-live="effIci" data-tip="MEASURED: DeepSeek-V3 technical report — “NVLink offers a bandwidth of 160 GB/s” usable = 0.80 of the 200 GB/s per-direction spec.">0.80</td>
         <td class="num" data-tip="DeepSeek-V3: “IB (50 GB/s)” per GPU (2026-08-17).">50 GB/s</td>
         <td class="num" data-tip="80 GB HBM3 (secondary spec databases; same memory system as H100 SXM).">80 GB</td></tr>
     </tbody>
@@ -1194,7 +1202,7 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   <span class="t-var" data-var="MFU" data-min="0.05" data-max="1" data-scale="lin" data-step="0.05" data-fmt="pct"></span>
   peak FLOPs utilization (often called MFU), and <strong>train it in
   approximately
-  <span class="t-out" data-expr="15e12*70e9*6/((B/(alpha/3))*C*MFU)" data-fmt="days"></span></strong>.
+  <span class="t-out" data-expr="15e12*70e9*6/((B/(alpha/3))*Cspec*MFU)" data-fmt="days"></span></strong>.
   Not bad! But let's explore how we can do
   better.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> The
   chapter's numbers (16M tokens, 18,823 chips, 17 days) are one point of this
@@ -1207,7 +1215,7 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
 
   <div class="eq-live">
     <span class="frac"><span>total FLOPs</span><span>chips · <i class="v v-C">C</i> · MFU</span></span>
-    = <span class="t-out" data-expr="15e12*70e9*6/((B/(alpha/3))*C*MFU)" data-fmt="days"></span>
+    = <span class="t-out" data-expr="15e12*70e9*6/((B/(alpha/3))*Cspec*MFU)" data-fmt="days"></span>
     <span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Added
     by this edition: the chapter's 17-day estimate, kept live — total FLOPs
     divided by the aggregate delivered FLOP-rate of the
@@ -2657,12 +2665,12 @@ for i in range(num_layers - 1, -1, -1):
   every derivation above just works.</p>
 
   <div class="preset-row"><span class="preset-label">Hardware:</span>
-    <button class="t-preset" data-set='{"C":9.9e14,"Wici":4.5e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1}'>H100</button>
-    <button class="t-preset" data-set='{"C":2.25e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.8e11,"podSize":8,"gpu":1,"MDP":1,"MTP":1}'>B200</button>
-    <button class="t-preset" data-set='{"C":2.5e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.86e11,"podSize":72,"gpu":1,"MDP":1,"MTP":1}'>GB200 NVL72</button>
-    <button class="t-preset" data-set='{"C":2.5e15,"Wici":9e11,"Wdcn":1e11,"HBM":2.88e11,"podSize":72,"gpu":1,"MDP":1,"MTP":1}'>GB300 NVL72</button>
-    <button class="t-preset" data-set='{"C":9.9e14,"Wici":2e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1}'>H800 (DeepSeek)</button>
-    <button class="t-preset" data-set='{"C":4.59e14,"Wici":1.8e11,"Wdcn":6.25e9,"HBM":9.6e10,"podSize":8960,"gpu":0,"MDP":2,"MTP":1}'>back to TPU v5p</button>
+    <button class="t-preset" data-set='{"C":9.9e14,"Wici":4.5e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1,"effC":0.73,"effIci":0.82,"effDcn":0.85}'>H100</button>
+    <button class="t-preset" data-set='{"C":2.25e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.8e11,"podSize":8,"gpu":1,"MDP":1,"MTP":1,"effC":0.69,"effIci":0.82,"effDcn":0.85}'>B200</button>
+    <button class="t-preset" data-set='{"C":2.5e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.86e11,"podSize":72,"gpu":1,"MDP":1,"MTP":1,"effC":0.70,"effIci":0.82,"effDcn":0.85}'>GB200 NVL72</button>
+    <button class="t-preset" data-set='{"C":2.5e15,"Wici":9e11,"Wdcn":1e11,"HBM":2.88e11,"podSize":72,"gpu":1,"MDP":1,"MTP":1,"effC":0.70,"effIci":0.82,"effDcn":0.85}'>GB300 NVL72</button>
+    <button class="t-preset" data-set='{"C":9.9e14,"Wici":2e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1,"effC":0.73,"effIci":0.80,"effDcn":0.85}'>H800 (DeepSeek)</button>
+    <button class="t-preset" data-set='{"C":4.59e14,"Wici":1.8e11,"Wdcn":6.25e9,"HBM":9.6e10,"podSize":8960,"gpu":0,"MDP":2,"MTP":1,"effC":0.72,"effIci":0.95,"effDcn":0.90}'>back to TPU v5p</button>
   </div>
 
   <h3>Where the bounds land on this fabric</h3>
@@ -2854,7 +2862,7 @@ the unsourced 300) and higher still than reality (divide by 160). See the
   reduce the critical batch size.</p>
 
   <div class="preset-row"><span class="preset-label">Load it:</span>
-    <button class="t-preset" data-set='{"C":9.9e14,"Wici":4.5e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1,"D":8192,"F":28672,"L":80,"E":1,"k":1,"EP":1,"PP":16,"Mmicro":16,"DP":128,"TP":8,"B":16000000}'>LLaMA-3 on 16k H100s</button>
+    <button class="t-preset" data-set='{"C":9.9e14,"Wici":4.5e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1,"D":8192,"F":28672,"L":80,"E":1,"k":1,"EP":1,"PP":16,"Mmicro":16,"DP":128,"TP":8,"B":16000000,"effC":0.73,"effIci":0.82,"effDcn":0.85}'>LLaMA-3 on 16k H100s</button>
   </div>
 </section>
 
@@ -3259,7 +3267,7 @@ the unsourced 300) and higher still than reality (divide by 160). See the
         TP. Per TPU memory will be as in (2), and step time will just be</p>
         <div class="eq">
           <span class="frac"><span>6 · 3e6 · <span class="t-out" data-expr="3*pL*pD*pF + 2*pD*pH*pL*(pNH+pNK) + 2*pV*pD" data-fmt="si"></span></span><span>4096 · <span class="t-out" data-expr="C" data-fmt="flops"></span> · <span class="t-var" data-var="MFU" data-min="0.05" data-max="1" data-scale="lin" data-step="0.05" data-fmt="pct"></span></span></span> =
-          <strong><span class="t-out" data-expr="6*3e6*(3*pL*pD*pF + 2*pD*pH*pL*(pNH+pNK) + 2*pV*pD)/(4096*C*MFU)" data-fmt="time"></span></strong><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> The
+          <strong><span class="t-out" data-expr="6*3e6*(3*pL*pD*pF + 2*pD*pH*pL*(pNH+pNK) + 2*pV*pD)/(4096*Cspec*MFU)" data-fmt="time"></span></strong><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> The
           numerator's "params" is Q1's live total,
           <span class="t-out" data-expr="3*pL*pD*pF + 2*pD*pH*pL*(pNH+pNK) + 2*pV*pD" data-fmt="si"></span>
           (the chapter's 13e9), so this line recomputes if you rewire the model in
@@ -3397,6 +3405,18 @@ the unsourced 300) and higher still than reality (divide by 160). See the
   wire("model-preset");
   wire("hw-preset");
   wire("model-preset-2");
+  // spec / measured segmented control
+  var segOpts = document.querySelectorAll("button.seg-opt[data-meas]");
+  segOpts.forEach(function (btn) {
+    btn.addEventListener("click", function () { Core.set({ meas: Number(btn.dataset.meas) }); });
+  });
+  function segSync(S) {
+    segOpts.forEach(function (btn) {
+      btn.setAttribute("aria-pressed", Number(btn.dataset.meas) === S.meas ? "true" : "false");
+    });
+  }
+  Core.subscribe(segSync);
+  segSync(Core.get());
 })();
 </script>
 </body>

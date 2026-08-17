@@ -166,6 +166,28 @@ button.reset {
   transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
 button.reset:hover { color: var(--ink); border-color: var(--axis); }
+
+/* spec/measured segmented control (machine bar) */
+.machine .seg { display: inline-flex; margin-left: 0.5em; vertical-align: baseline; }
+.machine .seg-opt {
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  color: var(--ink-2);
+  background: var(--page);
+  border: 1px solid var(--grid);
+  padding: 0.06rem 0.5rem;
+  cursor: pointer;
+}
+.machine .seg-opt:first-child { border-radius: 999px 0 0 999px; }
+.machine .seg-opt:last-child { border-radius: 0 999px 999px 0; border-left: none; }
+.machine .seg-opt:hover { color: var(--ink); }
+.machine .seg-opt[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--surface);
+  border-color: var(--ink);
+}
+.machine .eff-out { color: var(--muted); }
+.machine .eff-out .t-out { margin-left: 0.15em; }
 /* conspicuous when the state has strayed from the defaults — orange, a
    notification color deliberately distinct from the scrub green */
 button.reset.dirty {

@@ -219,7 +219,7 @@
         TP. Per TPU memory will be as in (2), and step time will just be</p>
         <div class="eq">
           <span class="frac"><span>6 · 3e6 · <span class="t-out" data-expr="3*pL*pD*pF + 2*pD*pH*pL*(pNH+pNK) + 2*pV*pD" data-fmt="si"></span></span><span>4096 · <span class="t-out" data-expr="C" data-fmt="flops"></span> · <span class="t-var" data-var="MFU" data-min="0.05" data-max="1" data-scale="lin" data-step="0.05" data-fmt="pct"></span></span></span> =
-          <strong><span class="t-out" data-expr="6*3e6*(3*pL*pD*pF + 2*pD*pH*pL*(pNH+pNK) + 2*pV*pD)/(4096*C*MFU)" data-fmt="time"></span></strong><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> The
+          <strong><span class="t-out" data-expr="6*3e6*(3*pL*pD*pF + 2*pD*pH*pL*(pNH+pNK) + 2*pV*pD)/(4096*Cspec*MFU)" data-fmt="time"></span></strong><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> The
           numerator's "params" is Q1's live total,
           <span class="t-out" data-expr="3*pL*pD*pF + 2*pD*pH*pL*(pNH+pNK) + 2*pV*pD" data-fmt="si"></span>
           (the chapter's 13e9), so this line recomputes if you rewire the model in

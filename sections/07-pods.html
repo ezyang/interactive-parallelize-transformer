@@ -276,12 +276,12 @@
   every derivation above just works.</p>
 
   <div class="preset-row"><span class="preset-label">Hardware:</span>
-    <button class="t-preset" data-set='{"C":9.9e14,"Wici":4.5e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1}'>H100</button>
-    <button class="t-preset" data-set='{"C":2.25e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.8e11,"podSize":8,"gpu":1,"MDP":1,"MTP":1}'>B200</button>
-    <button class="t-preset" data-set='{"C":2.5e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.86e11,"podSize":72,"gpu":1,"MDP":1,"MTP":1}'>GB200 NVL72</button>
-    <button class="t-preset" data-set='{"C":2.5e15,"Wici":9e11,"Wdcn":1e11,"HBM":2.88e11,"podSize":72,"gpu":1,"MDP":1,"MTP":1}'>GB300 NVL72</button>
-    <button class="t-preset" data-set='{"C":9.9e14,"Wici":2e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1}'>H800 (DeepSeek)</button>
-    <button class="t-preset" data-set='{"C":4.59e14,"Wici":1.8e11,"Wdcn":6.25e9,"HBM":9.6e10,"podSize":8960,"gpu":0,"MDP":2,"MTP":1}'>back to TPU v5p</button>
+    <button class="t-preset" data-set='{"C":9.9e14,"Wici":4.5e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1,"effC":0.73,"effIci":0.82,"effDcn":0.85}'>H100</button>
+    <button class="t-preset" data-set='{"C":2.25e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.8e11,"podSize":8,"gpu":1,"MDP":1,"MTP":1,"effC":0.69,"effIci":0.82,"effDcn":0.85}'>B200</button>
+    <button class="t-preset" data-set='{"C":2.5e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.86e11,"podSize":72,"gpu":1,"MDP":1,"MTP":1,"effC":0.70,"effIci":0.82,"effDcn":0.85}'>GB200 NVL72</button>
+    <button class="t-preset" data-set='{"C":2.5e15,"Wici":9e11,"Wdcn":1e11,"HBM":2.88e11,"podSize":72,"gpu":1,"MDP":1,"MTP":1,"effC":0.70,"effIci":0.82,"effDcn":0.85}'>GB300 NVL72</button>
+    <button class="t-preset" data-set='{"C":9.9e14,"Wici":2e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1,"effC":0.73,"effIci":0.80,"effDcn":0.85}'>H800 (DeepSeek)</button>
+    <button class="t-preset" data-set='{"C":4.59e14,"Wici":1.8e11,"Wdcn":6.25e9,"HBM":9.6e10,"podSize":8960,"gpu":0,"MDP":2,"MTP":1,"effC":0.72,"effIci":0.95,"effDcn":0.90}'>back to TPU v5p</button>
   </div>
 
   <h3>Where the bounds land on this fabric</h3>
@@ -473,7 +473,7 @@ the unsourced 300) and higher still than reality (divide by 160). See the
   reduce the critical batch size.</p>
 
   <div class="preset-row"><span class="preset-label">Load it:</span>
-    <button class="t-preset" data-set='{"C":9.9e14,"Wici":4.5e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1,"D":8192,"F":28672,"L":80,"E":1,"k":1,"EP":1,"PP":16,"Mmicro":16,"DP":128,"TP":8,"B":16000000}'>LLaMA-3 on 16k H100s</button>
+    <button class="t-preset" data-set='{"C":9.9e14,"Wici":4.5e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1,"D":8192,"F":28672,"L":80,"E":1,"k":1,"EP":1,"PP":16,"Mmicro":16,"DP":128,"TP":8,"B":16000000,"effC":0.73,"effIci":0.82,"effDcn":0.85}'>LLaMA-3 on 16k H100s</button>
   </div>
 </section>
 

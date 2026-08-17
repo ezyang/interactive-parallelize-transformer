@@ -16,6 +16,7 @@
     PP: 4, Mmicro: 8,
     MFU: 0.4, podSize: 8960, gpu: 0,
     E: 1, k: 1, EP: 8,
+    meas: 0, effC: 0.72, effIci: 0.95, effDcn: 0.90,
     pD: 5120, pF: 13824, pL: 40, pNH: 40, pNK: 40, pH: 128, pV: 32000, pB: 16e6,
   };
   const KEYS = Object.keys(DEFAULTS);
@@ -30,6 +31,7 @@
     PP: [1, 64], Mmicro: [1, 128],
     MFU: [0.05, 1], podSize: [1, 65536], gpu: [0, 1],
     E: [1, 2048], k: [1, 64], EP: [1, 1024],
+    meas: [0, 1], effC: [0.2, 1], effIci: [0.2, 1], effDcn: [0.2, 1],
     pD: [128, 65536], pF: [128, 262144], pL: [1, 500], pNH: [1, 512], pNK: [1, 512],
     pH: [16, 1024], pV: [1000, 1e6], pB: [1, 1e10],
   };
@@ -40,15 +42,32 @@
     return Math.min(lim[1], Math.max(lim[0], v));
   }
 
+  // ---------- effective hardware (spec vs measured) ----------
+  // When meas = 1, every consumer of C / Wici / Wdcn — expressions, widgets,
+  // derived values — sees the sustained values (spec × the eff* factors).
+  // The raw spec numbers stay in state (the top-bar scrubs edit those) and
+  // remain reachable in expressions as Cspec / WiciSpec / WdcnSpec.
+  function effOf(key) {
+    const f = { C: "effC", Wici: "effIci", Wdcn: "effDcn" }[key];
+    return state.meas ? state[key] * state[f] : state[key];
+  }
+  function effState() {
+    const es = Object.assign({}, state);
+    es.C = effOf("C"); es.Wici = effOf("Wici"); es.Wdcn = effOf("Wdcn");
+    es.Cspec = state.C; es.WiciSpec = state.Wici; es.WdcnSpec = state.Wdcn;
+    return es;
+  }
+
   // ---------- derived + expression evaluation ----------
   const MATH_KEYS = ["sqrt", "min", "max", "pow", "ceil", "floor", "round", "abs", "exp", "PI"];
-  const EXPR_ARGS = KEYS.concat(["N", "alpha", "alphaDcn", "P", "log2", "log10"]).concat(MATH_KEYS);
+  const SPEC_KEYS = ["Cspec", "WiciSpec", "WdcnSpec"];
+  const EXPR_ARGS = KEYS.concat(["N", "alpha", "alphaDcn", "P", "log2", "log10"]).concat(SPEC_KEYS).concat(MATH_KEYS);
 
   function derivedVals() {
     return {
       N: state.DP * state.TP,
-      alpha: state.C / state.Wici,
-      alphaDcn: state.C / state.Wdcn,
+      alpha: effOf("C") / effOf("Wici"),
+      alphaDcn: effOf("C") / effOf("Wdcn"),
       // F is per-expert width (chapter-12 convention): weights scale with E·F
       P: 2 * state.D * state.E * state.F * state.L,
       log2: Math.log2, log10: Math.log10,
@@ -56,8 +75,10 @@
   }
   function exprArgValues() {
     const d = derivedVals();
-    const vals = KEYS.map((k) => state[k]);
+    const es = effState();
+    const vals = KEYS.map((k) => es[k]);
     vals.push(d.N, d.alpha, d.alphaDcn, d.P, d.log2, d.log10);
+    for (const sk of SPEC_KEYS) vals.push(es[sk]);
     for (const mk of MATH_KEYS) vals.push(Math[mk]);
     return vals;
   }
@@ -321,9 +342,13 @@
     DP: "Data / FSDP parallel shards (a mesh axis; the chapter's X)", TP: "Tensor-parallel shards (a mesh axis; the chapter's Y)",
     MDP: "Hardware mesh axes carrying the data/FSDP sharding", MTP: "Hardware mesh axes carrying the tensor sharding",
     PP: "Pipeline stages (the chapter's Z)", Mmicro: "Microbatches",
-    MFU: "Model FLOPs utilization", podSize: "Chips per pod (ICI / NVLink domain)",
+    MFU: "Assumed model FLOPs utilization for wall-clock estimates — always applied against SPEC peak (Cspec), so measured mode doesn't double-count the GEMM shortfall", podSize: "Chips per pod (ICI / NVLink domain)",
     gpu: "GPU switched-fabric flag (0 = TPU mesh)", E: "Experts per layer (total, incl. shared)",
     k: "Experts activated per token (incl. shared)", EP: "Expert-parallel degree (chapter 12's Z)",
+    meas: "0 = spec sheet numbers, 1 = measured/sustained (spec × the eff factors)",
+    effC: "Sustained GEMM fraction of spec peak compute (see the hardware table's citations)",
+    effIci: "Achieved collective fraction of spec in-pod bandwidth",
+    effDcn: "Achieved fraction of spec cross-pod bandwidth",
     pD: "Problem model — d_model", pF: "Problem model — d_ff", pL: "Problem model — layers",
     pNH: "Problem model — query heads", pNK: "Problem model — KV heads",
     pH: "Problem model — head dim", pV: "Problem model — vocab size", pB: "Problem batch — tokens",
@@ -414,9 +439,10 @@
   // the expr with every variable replaced by its current value: provenance made concrete
   function substituted(expr) {
     const d = derivedVals();
+    const es = effState();
     return expr
       .replace(IDENT_RE, (m) => {
-        if (m in state) return shortNum(state[m]);
+        if (m in es) return shortNum(es[m]);
         if (m === "N" || m === "alpha" || m === "alphaDcn" || m === "P") return shortNum(d[m]);
         return m;
       })
@@ -691,11 +717,12 @@
       case "DP": return ["chips on the data/FSDP-parallel mesh axis (the chapter's X)", "DP = " + fmt(state.DP, "int")];
       case "TP": return ["chips on the tensor-parallel mesh axis (the chapter's Y)", "TP = " + fmt(state.TP, "int")];
       case "N": return ["total chips in the slice, N = DP·TP", "N = " + fmt(state.DP * state.TP, "int")];
-      case "C": return ["peak matmul FLOPs/s of one chip", "C = " + fmt(state.C, "flops")];
+      case "C": return [state.meas ? "matmul FLOPs/s of one chip — MEASURED mode: sustained = spec × " + fmt(state.effC, "sig3") : "peak matmul FLOPs/s of one chip",
+        "C = " + fmt(effOf("C"), "flops") + (state.meas ? "  (spec " + fmt(state.C, "flops") + ")" : "")];
       case "W":
-        if (/dcn/i.test(txt)) return ["cross-pod (DCN / InfiniBand) bandwidth per chip", "W_dcn = " + fmt(state.Wdcn, "bw")];
-        if (/ici/i.test(txt)) return ["in-pod interconnect bandwidth per axis (ICI; NVLink egress under GPU presets)", "W_ici = " + fmt(state.Wici, "bw")];
-        return ["network bandwidth — W_ici in-pod, W_dcn between pods", "W_ici = " + fmt(state.Wici, "bw") + "   W_dcn = " + fmt(state.Wdcn, "bw")];
+        if (/dcn/i.test(txt)) return ["cross-pod (DCN / InfiniBand) bandwidth per chip" + (state.meas ? " — measured" : ""), "W_dcn = " + fmt(effOf("Wdcn"), "bw") + (state.meas ? "  (spec " + fmt(state.Wdcn, "bw") + ")" : "")];
+        if (/ici/i.test(txt)) return ["in-pod interconnect bandwidth per axis (ICI; NVLink egress under GPU presets)" + (state.meas ? " — measured" : ""), "W_ici = " + fmt(effOf("Wici"), "bw") + (state.meas ? "  (spec " + fmt(state.Wici, "bw") + ")" : "")];
+        return ["network bandwidth — W_ici in-pod, W_dcn between pods", "W_ici = " + fmt(effOf("Wici"), "bw") + "   W_dcn = " + fmt(effOf("Wdcn"), "bw")];
       case "PP": return ["pipeline stages (the pipelining section's Z)", "PP = " + fmt(state.PP, "int")];
       case "EP": return ["expert-parallel degree (chapter 12's Z)", "EP = " + fmt(state.EP, "int")];
       case "E": return ["experts per layer — total holding weights, counting shared", "E = " + fmt(state.E, "int") + "   E·F = " + fmt(state.E * state.F, "si")];
@@ -770,6 +797,9 @@
     L: { min: "1", max: "200", scale: "lin", snap: "int", fmt: "int" },
     E: { min: "1", max: "2048", scale: "log", snap: "pow2", fmt: "int" },
     k: { min: "1", max: "64", scale: "lin", snap: "int", fmt: "int" },
+    effC: { min: "0.2", max: "1", scale: "lin", fmt: "sig3" },
+    effIci: { min: "0.2", max: "1", scale: "lin", fmt: "sig3" },
+    effDcn: { min: "0.2", max: "1", scale: "lin", fmt: "sig3" },
   };
   function initLiveRows(root) {
     root.querySelectorAll("td[data-live], td[data-live-expr]").forEach((td) => {
@@ -1143,8 +1173,9 @@
     initDimTokens(root);
     initSidenotes(root);
     mountWidgets(root);
-    subscribe((S) => { for (const w of instances) { try { w.update(S); } catch (e) { console.error("widget update failed", e); } } });
-    const S = state;
+    // widgets see the EFFECTIVE hardware view (spec × measured factors)
+    subscribe(() => { const E = effState(); for (const w of instances) { try { w.update(E); } catch (e) { console.error("widget update failed", e); } } });
+    const S = effState();
     for (const w of instances) { try { w.update(S); } catch (e) { console.error("widget first update failed", e); } }
     const resetBtns = document.querySelectorAll("button.reset");
     resetBtns.forEach((b) => b.addEventListener("click", resetAll));

@@ -279,7 +279,7 @@
   <span class="t-var" data-var="MFU" data-min="0.05" data-max="1" data-scale="lin" data-step="0.05" data-fmt="pct"></span>
   peak FLOPs utilization (often called MFU), and <strong>train it in
   approximately
-  <span class="t-out" data-expr="15e12*70e9*6/((B/(alpha/3))*C*MFU)" data-fmt="days"></span></strong>.
+  <span class="t-out" data-expr="15e12*70e9*6/((B/(alpha/3))*Cspec*MFU)" data-fmt="days"></span></strong>.
   Not bad! But let's explore how we can do
   better.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> The
   chapter's numbers (16M tokens, 18,823 chips, 17 days) are one point of this
@@ -292,7 +292,7 @@
 
   <div class="eq-live">
     <span class="frac"><span>total FLOPs</span><span>chips · <i class="v v-C">C</i> · MFU</span></span>
-    = <span class="t-out" data-expr="15e12*70e9*6/((B/(alpha/3))*C*MFU)" data-fmt="days"></span>
+    = <span class="t-out" data-expr="15e12*70e9*6/((B/(alpha/3))*Cspec*MFU)" data-fmt="days"></span>
     <span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Added
     by this edition: the chapter's 17-day estimate, kept live — total FLOPs
     divided by the aggregate delivered FLOP-rate of the

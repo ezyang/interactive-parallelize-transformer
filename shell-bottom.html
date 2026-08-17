@@ -56,6 +56,18 @@
   wire("model-preset");
   wire("hw-preset");
   wire("model-preset-2");
+  // spec / measured segmented control
+  var segOpts = document.querySelectorAll("button.seg-opt[data-meas]");
+  segOpts.forEach(function (btn) {
+    btn.addEventListener("click", function () { Core.set({ meas: Number(btn.dataset.meas) }); });
+  });
+  function segSync(S) {
+    segOpts.forEach(function (btn) {
+      btn.setAttribute("aria-pressed", Number(btn.dataset.meas) === S.meas ? "true" : "false");
+    });
+  }
+  Core.subscribe(segSync);
+  segSync(Core.get());
 })();
 </script>
 </body>
