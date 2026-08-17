@@ -1,6 +1,7 @@
 # EDITS-LOG — sweep outcomes (single writer: Fable)
 
-> **INBOX: clear** as of 2026-08-17, commit a0b25b0 · EDITS.md md5 `7473a131656d98f7da67970a96379fe7`
+> **INBOX: clear** as of 2026-08-17, commit afd6743 · EDITS.md md5 `db3bb05fd514bca7c98b00934df7f5e6`
+> (one judgment call raised in chat: "stick to X, Y, Z for TPU by default?")
 > (If `md5 -q EDITS.md` no longer matches, the difference is unswept.)
 
 One line per processed inbox item: ✓ done (commit) · ✗ skipped (why) · ? question.
@@ -42,3 +43,16 @@ Fable updates the INBOX stamp above at the end of every sweep and states it in c
 ## Hardware epic — stages ③ + ④ (commits bf0fcbd, e94d0e3)
 - ✓ stage ③ "theoretical vs measured throughput/bandwidth" — top-bar spec/measured segmented control; measured mode derates every equation and widget (C × sustained, W × achieved, per-preset cited factors from SOURCES.md); effective readouts appear beside the C/W scrubs; the provenance table's sustained/achieved cells turn into live green factor scrubs on the loaded hardware's row; MFU wall-clock estimates pinned to spec peak (Cspec) so nothing double-counts.
 - ✓ stage ④ terminology — see the BIG ONE entry above.
+
+## Sweep #4 — post-hardware-epic editor pass (commits 3f57a5a, d79d3ce, + this)
+- ✓ "spec/measured toggle moves" — took your first option: the → effective readouts are gone from the bar (C/W hovers show spec × factor = effective instead); mode/preset picks also no longer light the reset button. Verified pixel-stable across the toggle.
+- ✓ "reset should be for scrubs" — reset now restores B, mesh degrees, MFU, and problem variables while keeping model, hardware, and spec/measured; dirty-orange tracks only the scrubs. (MDP/MTP are kept with hardware since GPU presets force them to 1 — flag if you'd rather they reset.)
+- ✓ "update history when the URL changes" — settled changes push history entries; back/forward walk through earlier configurations; plain #anchor TOC hashes don't touch state.
+- ✓ "E/k clause doesn't linebreak" — it was inside the ridge equation's nowrap span; moved out, no more horizontal scrollbar.
+- ✓ "right margin wider" — the layouter was silently clamping notes to 160px against the paper's own margin; they now size to real viewport room, up to 19rem (304px at common widths).
+- ✓ "hovering annotated text should highlight" — the sentence-side hover now lights the pair: the margin note AND the sentence itself (it previously lit only the note, and the sentence lit only from the ◦ side).
+- ✓ "green highlight is lying in measured mode" — no, you hadn't seen the fix yet, and you were right: now the green C/W scrubs display and edit the EFFECTIVE value (drag/type maps back through the factor; hover shows "measured — spec × factor").
+- ✓ "hide Z / TPU mesh text under GPU" — notation-table Z row, the multi-axes note, the three-axes sentence, and the 3-axis preset buttons all hide when gpu=1. (03-fsdp's chapter worked example with "all 3 axes" buttons left visible — it's a chapter calculation, not just mesh vocabulary; flag if you want it hidden too.) The "stick to X, Y, Z for TPU by default" musing → chat.
+- ✓ "k as 8+1" — done for all MoE rows (+tooltip: routed top-k + always-on shared); sorts by routed count, same order as totals.
+- ✓ "ALL tooltips persist on click" — data-tips are now pinnable everywhere except click-taken elements (preset buttons, sortable headers — sorting and pinning on the same click would fight). Green scrubs stay unpinned by design: their click starts the drag; their colored letter tokens pin instead.
+- ✓ "sources: links + methodology" — every hardware-table cell's tooltip now ends with a clickable source ↗ link (pin the card, click the link); the table's ✦ note links SOURCES.md and states the synthesis rules (sparsity→dense halving, bidi→per-direction, NIC-per-GPU division, and what each ≈ estimate inherits from).
