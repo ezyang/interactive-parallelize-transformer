@@ -1249,14 +1249,29 @@
       const dirty = RESET_KEYS.some((kk) => state[kk] !== DEFAULTS[kk]);
       resetBtns.forEach((b) => b.classList.toggle("dirty", dirty));
     });
-    // declarative instant tooltips: any element with data-tip (optional data-tip-label)
+    // declarative instant tooltips: any element with data-tip (optional
+    // data-tip-label; data-tip-href adds a source link, clickable once
+    // pinned). Click-to-pin everywhere EXCEPT elements whose click already
+    // does something (buttons, sortable headers).
     root.querySelectorAll("[data-tip]").forEach((el) => {
+      const clickTaken = !!(el.closest("button, th") || el.querySelector("button"));
       attachHoverTip(el, () => {
         const rows = [];
         if (el.dataset.tipLabel) rows.push({ cls: "tip-label", text: el.dataset.tipLabel });
         rows.push({ text: el.dataset.tip });
+        if (el.dataset.tipHref) {
+          const a = document.createElement("a");
+          a.href = el.dataset.tipHref;
+          a.target = "_blank";
+          a.rel = "noopener";
+          a.textContent = (el.dataset.tipSrc || "source") + " ↗";
+          const wrap = document.createElement("span");
+          wrap.className = "tip-link";
+          wrap.appendChild(a);
+          rows.push({ cls: "tip-sub", el: wrap });
+        }
         return rows;
-      });
+      }, { pinnable: !clickTaken });
     });
     initSortableTables(root);
     initToc();

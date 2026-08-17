@@ -240,7 +240,9 @@ button.reset.dirty:hover { color: #7c3a06; background: rgba(180, 83, 9, 0.15); }
 .t-if.t-if-false { color: var(--bad); }
 
 .t-show { display: block; }
-.t-show[hidden] { display: none; }
+tr.t-show { display: table-row; }
+.t-show[hidden] { display: none !important; }
+.tip-link a { color: var(--derived); }
 
 .try {
   font-family: var(--sans);

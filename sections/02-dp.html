@@ -350,20 +350,20 @@ being
 communication-bound</strong>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
 The famous 2,550 — the same constant <a href="#roofline">the primer</a>
 promised would keep reappearing. It's live here: change the hardware in the
-machine bar and this floor moves with it.</span></span> Since we can do data
+machine bar and this floor moves with it.</span></span> <span class="t-show inline" data-expr="1-gpu">Since we can do data
 parallelism over multiple axes, if we dedicate all three axes of a TPUv5p pod
 to pure data parallelism, we 3x our bandwidth
 <i class="v v-W">W<sub>ici</sub></i> and can scale down to only
 BS=<span class="t-out" data-expr="alpha/3" data-fmt="int"></span> per <span class="tm">TPU</span> or
 <span class="t-out" data-expr="podSize*alpha/3" data-fmt="tokens"></span>
 tokens per batch per <span class="tm">pod</span> (of
-<span class="t-out" data-expr="podSize" data-fmt="int"></span> chips)!
+<span class="t-out" data-expr="podSize" data-fmt="int"></span> chips)!</span>
 <strong>This tells us that it's fairly hard to become bottlenecked by pure data
 parallelism!</strong></p>
 
 <div class="preset-row"><span class="preset-label">Try:</span>
-  <button class="t-preset" data-set='{"DP":8192,"TP":1,"MDP":3,"MTP":1,"B":7600000}'>8,192 chips (≈ a <span class="tm">pod</span>), 3 axes, 7.6M batch (right at the ridge)</button>
-  <button class="t-preset" data-set='{"DP":8192,"TP":1,"MDP":1,"MTP":1,"B":7600000}'>same, but only 1 axis</button>
+  <span class="t-show inline" data-expr="1-gpu"><button class="t-preset" data-set='{"DP":8192,"TP":1,"MDP":3,"MTP":1,"B":7600000}'>8,192 chips (≈ a <span class="tm">pod</span>), 3 axes, 7.6M batch (right at the ridge)</button>
+<button class="t-preset" data-set='{"DP":8192,"TP":1,"MDP":1,"MTP":1,"B":7600000}'>same, but only 1 axis</button></span>
   <button class="t-preset" data-set='{"DP":512,"TP":8,"MDP":2,"MTP":1,"B":2000000}'>page defaults</button>
 </div>
 
@@ -382,7 +382,7 @@ something called &ldquo;ring attention&rdquo;). Throughout this section, we
 will just ignore our sequence dimension entirely and assume some amount of
 batch or sequence parallelism.</div>
 
-<div class="note"><strong>Note on multiple mesh axes:</strong> We should
+<div class="note t-show" data-expr="1-gpu"><strong>Note on multiple mesh axes:</strong> We should
 quickly note how multiple axes affects the available bandwidth. When we use
 multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   <ul>

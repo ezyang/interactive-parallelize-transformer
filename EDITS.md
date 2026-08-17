@@ -45,3 +45,9 @@ Fable never writes to this file. Append items below; delete old ones whenever
 
 - The sources in the hardware table don't seem sufficient.  I'm expecting
   links. I'm expecting methodology when we're doing novel synthesis of research.
+
+- k in equations is not tooltip'ified.  Maybe a refactor here is good too?
+
+- I think it's bad that we have MXU and ICI all over the doc when you're on an
+  NVIDIA GPU.  I think it would be beneficial to make sure we use NVIDIA aware
+  variable names in this case.
