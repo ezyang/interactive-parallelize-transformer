@@ -6,6 +6,7 @@
    ============================================================ */
 (function () {
   "use strict";
+  const tp = (S, t, g) => (S.gpu >= 0.5 ? g : t); // hardware-terminology swap
   const axLabel = (a) => ({ X: "DP", Y: "TP", MX: "M_DP", MY: "M_TP", Z: "PP", MDP: "M_DP", MTP: "M_TP" }[a] || a);
   const SER = Core.SERIES, CHR = Core.CHROME;
   const SVGNS = "http://www.w3.org/2000/svg";
@@ -389,8 +390,8 @@
       const svg = h("svg", {
         viewBox: `0 0 ${W} ${H}`, role: "img",
         "aria-label": K === 1
-          ? "a single pod of chips; the data-center network is not needed yet"
-          : K + " pods of chips joined by data-center network links",
+          ? "a single " + tp(S, "pod", "node") + " of chips; the scale-out network is not needed yet"
+          : K + " " + tp(S, "pods", "nodes") + " of chips joined by scale-out network links",
       });
       svg.style.width = "100%";
       const g = h("g");
@@ -404,7 +405,7 @@
         if (showEllipsis && i === nBoxes - 2) boxes.push({ ellipsis: true, label: "· · ·" });
         else {
           const idx = showEllipsis && i === nBoxes - 1 ? K : i + 1;
-          boxes.push({ ellipsis: false, label: "pod " + idx + " · " + chipsLabel });
+          boxes.push({ ellipsis: false, label: tp(S, "pod ", "node ") + idx + " · " + chipsLabel });
         }
       }
 
@@ -417,7 +418,7 @@
         g.appendChild(h("text", {
           x: (x1 + x2) / 2, y: midY - 8, "text-anchor": "middle",
           "font-size": 9.5, fill: CHR.muted,
-        }, "DCN"));
+        }, tp(S, "DCN", "IB")));
         g.appendChild(h("text", {
           x: (x1 + x2) / 2, y: midY + 14, "text-anchor": "middle",
           "font-size": 9.5, fill: CHR.muted,
@@ -431,8 +432,8 @@
       svg.appendChild(h("text", {
         x: W / 2, y: 15, "text-anchor": "middle", "font-size": 11.5, fill: CHR.ink2, "font-weight": 600,
       }, K === 1
-        ? "N = " + Core.fmt(N, "si") + " chips fit in one pod of " + Core.fmt(S.podSize, "si") + " — DCN not yet needed"
-        : "K = ⌈N ÷ podSize⌉ = " + Core.fmt(K, "int") + " pods, pure data parallelism across the slow links"));
+        ? "N = " + Core.fmt(N, "si") + " chips fit in one " + tp(S, "pod", "node") + " of " + Core.fmt(S.podSize, "si") + " — " + tp(S, "DCN", "InfiniBand") + " not yet needed"
+        : "K = ⌈N ÷ podSize⌉ = " + Core.fmt(K, "int") + " " + tp(S, "pods", "nodes") + ", pure data parallelism across the slow links"));
 
       svgWrap.innerHTML = "";
       svgWrap.appendChild(svg);
@@ -441,16 +442,16 @@
       const ok = perPod > alphaDcn;
       if (K === 1) {
         readText.textContent =
-          "One pod holds all " + Core.fmt(N, "si") + " chips, so every collective rides the fast ICI. " +
-          "Grow N past podSize = " + Core.fmt(S.podSize, "si") + " chips and the slow DCN links come into play.";
+          "One " + tp(S, "pod", "node") + " holds all " + Core.fmt(N, "si") + " chips, so every collective rides the fast " + tp(S, "ICI", "NVLink") + ". " +
+          "Grow N past podSize = " + Core.fmt(S.podSize, "si") + " chips and the slow " + tp(S, "DCN", "InfiniBand") + " links come into play.";
         pill.className = "verdict ok";
-        pill.textContent = "DCN not needed";
+        pill.textContent = tp(S, "DCN", "InfiniBand") + " not needed";
       } else {
         readText.textContent =
-          "per-pod batch B ÷ K = " + Core.fmt(perPod, "si") + " tokens vs αDCN = C ÷ Wdcn = " +
+          "per-" + tp(S, "pod", "node") + " batch B ÷ K = " + Core.fmt(perPod, "si") + " tokens vs α_dcn = C ÷ Wdcn = " +
           Core.fmt(alphaDcn, "int") + " →";
         pill.className = "verdict " + (ok ? "ok" : "bad");
-        pill.textContent = ok ? "compute-bound over DCN ✓" : "DCN-bound ✗";
+        pill.textContent = ok ? "compute-bound over " + tp(S, "DCN", "IB") + " ✓" : tp(S, "DCN", "IB") + "-bound ✗";
       }
     }
 

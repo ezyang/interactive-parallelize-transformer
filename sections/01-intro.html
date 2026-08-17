@@ -18,7 +18,7 @@ per-device computation we can use to hide it. As we saw in
 <a href="https://jax-ml.github.io/scaling-book/sharding/">Section 3</a>, sharded
 matrix multiplications often require expensive
 <span class="op op-ag">AllGather</span>s or
-<span class="op op-rs">ReduceScatter</span>s that can block the TPUs from doing
+<span class="op op-rs">ReduceScatter</span>s that can block the <span class="tm">TPUs</span> from doing
 useful work. The goal of this section is to find out when these become
 <em>too expensive.</em></p>
 
@@ -36,7 +36,7 @@ important, they typically do not bound us when using rematerialization
 <a href="#expert-parallelism">expert parallelism</a>, unlike the
 original.)</span></span></span> For this section, you can focus solely on inter-chip
 communication costs, since as long as we have a large enough single-chip batch
-size, the transfer of data from HBM to MXU is already overlapped with
+size, the transfer of data from HBM to <span class="tm">MXU</span> is already overlapped with
 computation.</p>
 
 <p>We'll use the following notation to simplify calculations throughout this

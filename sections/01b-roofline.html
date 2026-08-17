@@ -7,7 +7,7 @@
 
 <p>When a chip works on one layer of our Transformer, two clocks run <em>at the same time</em>:</p>
 
-<p>The <strong>compute clock</strong>: the MXU has to chew through this layer's share of FLOPs. With
+<p>The <strong>compute clock</strong>: the <span class="tm">MXU</span> has to chew through this layer's share of FLOPs. With
 <span class="v v-B">B</span> = <span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span> tokens
 split over <span class="v v-DP">DP</span> = <span class="t-var" data-var="DP" data-min="1" data-max="65536" data-scale="log" data-snap="pow2" data-fmt="int"></span> chips,
 that's <span class="eq-i"><span class="frac"><span>4 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · <span class="t-show inline" data-expr="E>1">k·</span><i class="v v-F">F</i></span><span><i class="v v-DP">DP</i> · <i class="v v-C">C</i></span></span></span> =
@@ -15,7 +15,7 @@ that's <span class="eq-i"><span class="frac"><span>4 · <i class="v v-B">B</i> �
 
 <p>The <strong>network clock</strong>: whatever bytes this scheme moves have to squeeze through the interconnect at
 <span class="v v-W">W<sub>ici</sub></span> = <span class="t-var" data-var="Wici" data-min="1e10" data-max="2e12" data-scale="log" data-fmt="bw"></span>.
-Crucially, the hardware lets these two clocks <em>overlap</em>: the network can carry bytes while the MXU multiplies. So a layer doesn't cost the <em>sum</em> of the two times — it costs the <strong>max</strong>. Communication that fits under the compute clock is <em>free</em>. Communication that pokes out past it leaves silicon idle, and that overhang is exactly what "communication-bound" means.</p>
+Crucially, the hardware lets these two clocks <em>overlap</em>: the network can carry bytes while the <span class="tm">MXU</span> multiplies. So a layer doesn't cost the <em>sum</em> of the two times — it costs the <strong>max</strong>. Communication that fits under the compute clock is <em>free</em>. Communication that pokes out past it leaves silicon idle, and that overhang is exactly what "communication-bound" means.</p>
 
 <figure class="breakout">
   <div class="widget" data-widget="overlap-timeline" data-opts='{}'></div>

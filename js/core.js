@@ -750,6 +750,35 @@
     });
   }
 
+  // ---------- hardware terminology layer ----------
+  // The chapter speaks TPU; under a GPU preset the same sentences read in GPU
+  // vocabulary. <span class="tm">TPUs</span> or <span class="tm" data-g="…">.
+  // TPU mode always shows the chapter's exact words (the element's own text).
+  const TERM_G = {
+    TPU: "GPU", TPUs: "GPUs", ICI: "NVLink", DCN: "InfiniBand",
+    MXU: "tensor core", MXUs: "tensor cores",
+    pod: "node", pods: "nodes", Pod: "Node", Pods: "Nodes",
+  };
+  function initTermTokens(root) {
+    const toks = [];
+    root.querySelectorAll(".tm").forEach((el) => {
+      const t = el.textContent;
+      const g = el.dataset.g != null ? el.dataset.g : (TERM_G[t.trim()] || t);
+      toks.push({ el, t, g });
+    });
+    if (!toks.length) return;
+    let cur = null;
+    const render = () => {
+      const gm = state.gpu >= 0.5;
+      if (gm === cur) return;
+      cur = gm;
+      for (const k of toks) k.el.textContent = gm ? k.g : k.t;
+      scheduleMarginLayout();
+    };
+    subscribe(render);
+    render();
+  }
+
   // ---------- shape tokenizer ----------
   // Inside <span class="shape">…</span> einsum notation, wrap bare dimension
   // letters and axis subscripts as .v tokens so they get the same colors and
@@ -1168,6 +1197,7 @@
     root.querySelectorAll(".t-if[data-expr]").forEach(initIf);
     root.querySelectorAll(".t-show[data-expr]").forEach(initShow);
     root.querySelectorAll(".t-preset[data-set]").forEach(initPreset);
+    initTermTokens(root);
     initShapeTokens(root);
     initLiveRows(root);
     initDimTokens(root);

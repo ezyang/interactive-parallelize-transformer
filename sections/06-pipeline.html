@@ -21,18 +21,18 @@
 
   <div class="algorithm">
     <ol>
-      <li>Initialize your data on TPU 0 with your weights sharded across the layer
+      <li>Initialize your data on <span class="tm">TPU</span> 0 with your weights sharded across the layer
         dimension (<span class="shape">W<sub>in</sub>[L<sub>PP</sub>, D<sub>DP</sub>, F<sub>TP</sub>]</span>
         for pipelining with FSDP and tensor parallelism).</li>
-      <li>Perform the first layer on TPU 0, then copy the resulting activations to
-        TPU 1, and repeat until you get to the last TPU.</li>
+      <li>Perform the first layer on <span class="tm">TPU</span> 0, then copy the resulting activations to
+        <span class="tm">TPU</span> 1, and repeat until you get to the last <span class="tm">TPU</span>.</li>
       <li>Compute the loss function and its derivative
         <span class="eq-i">∂L/∂x<sub>L</sub></span>.</li>
       <li>For the last pipeline stage, compute the derivatives
         <span class="eq-i">∂L/∂W<sub>L</sub></span> and
         <span class="eq-i">∂L/∂x<sub>L−1</sub></span>, then copy
         <span class="eq-i">∂L/∂x<sub>L−1</sub></span> to the previous pipeline stage
-        and repeat until you reach TPU 0.</li>
+        and repeat until you reach <span class="tm">TPU</span> 0.</li>
     </ol>
   </div>
 
@@ -105,7 +105,7 @@ for i in range(num_layers - 1, -1, -1):
   </div>
 
   <p><strong>Why is this difficult/annoying?</strong> You might have noticed in the
-  pseudocode above that TPU 0 is almost always idle! It's only doing work on the very
+  pseudocode above that <span class="tm">TPU</span> 0 is almost always idle! It's only doing work on the very
   first and last step of the pipeline. The period of idleness is called a pipeline
   bubble and is very annoying to deal with. Typically we try to mitigate this first
   with microbatching, which sends
@@ -114,11 +114,11 @@ for i in range(num_layers - 1, -1, -1):
   small batches through the
   <i class="v v-PP">PP</i> =
   <span class="t-var" data-var="PP" data-min="1" data-max="32" data-scale="lin" data-snap="int" data-fmt="int"></span>-stage
-  pipeline, keeping TPU 0 utilized for at least a larger fraction of the total step
+  pipeline, keeping <span class="tm">TPU</span> 0 utilized for at least a larger fraction of the total step
   time.<span class="sn edit"><button class="sn-ref" aria-label="edit note">Δ</button><span class="sn-body"><span class="sn-tag">edited</span> The
   chapter reads: <span class="orig">“Typically we try to mitigate this first with
   microbatching, which sends multiple small batches through the pipeline, keeping
-  TPU 0 utilized for at least a larger fraction of the total step
+  <span class="tm">TPU</span> 0 utilized for at least a larger fraction of the total step
   time.”</span> — reworded to host the scrubbable microbatch and stage
   counts.<span class="sn-post"><span class="sn-tag">adaptation</span> The
   chapter never states the bubble-fraction formula; the equation below is ours, for a

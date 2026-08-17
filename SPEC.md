@@ -72,7 +72,7 @@ Variables, defaults, meaning (all plain numbers):
    every direct C/Wici/Wdcn use in live chrome and widgets to Ce/Wie/Wde.
    In measured mode the MFU tooltip re-describes itself as losses beyond
    sustained matmul (no silent double-counting). Chapter .eq blocks stay verbatim.
-④ Hardware terminology layer: term tokens (like the axis-notation layer) render
+④ DONE (core initTermTokens: .tm spans hold the chapter's word, data-g or the TERM_G dict supplies the GPU variant, driven by the gpu flag; 42 tokens across sections; widget labels swap via S.gpu; comparative TPU-vs-GPU sentences and 07-pods' deliberate contrast excluded) — was: term tokens render
    hardware-dependent words per the gpu flag — TPU↔GPU, pod↔node, ICI↔NVLink,
    MXU↔tensor core, SuperPod↔SU… TPU mode = the chapter's exact wording;
    GPU mode is a disclosed global transformation (howto convention line).

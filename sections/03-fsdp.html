@@ -126,9 +126,9 @@
   states across a set of devices.</p>
 
   <p><strong>Why would we do this?</strong> Standard data parallelism involves
-  a lot of duplicated work. Each TPU <span class="op op-ar">AllReduce</span>s
+  a lot of duplicated work. Each <span class="tm">TPU</span> <span class="op op-ar">AllReduce</span>s
   the full gradient, then updates the full optimizer state (identical work on
-  all TPUs), then updates the parameters (again, fully duplicated). For ZeRO
+  all <span class="tm">TPUs</span>), then updates the parameters (again, fully duplicated). For ZeRO
   sharding (sharding the gradients/optimizer state), instead of an AllReduce,
   you can <span class="op op-rs">ReduceScatter</span> the gradients, update
   only your shard of the optimizer state, update a shard of the parameters,
@@ -199,7 +199,7 @@
   <span class="eq-i"><i class="v v-B">B</i> / <i class="v v-DP">DP</i> &gt;
   <i class="v v-C">C</i> / <i class="v v-W">W<sub>ici</sub></i></span>, i.e.
   when the per-device batch size <i class="v v-B">B</i>/<i class="v v-DP">DP</i>
-  exceeds the "ICI operational intensity"
+  exceeds the "<span class="tm" data-g="NVLink">ICI</span> operational intensity"
   <i class="v v-C">C</i>/<i class="v v-W">W<sub>ici</sub></i>
   (<span class="t-out" data-expr="C" data-fmt="e"></span> /
   <span class="t-out" data-expr="Wici" data-fmt="e"></span> =
@@ -229,7 +229,7 @@
   </figure>
 
   <div class="takeaway"><strong>Takeaway:</strong> Both FSDP and pure Data
-  Parallelism become bandwidth bound on TPUv5 when the batch size per device
+  Parallelism become bandwidth bound on <span class="tm" data-g="our GPU">TPUv5</span> when the batch size per device
   is less than <span class="t-out" data-expr="alpha" data-fmt="int"></span> /
   <i class="v v-M">M<sub>DP</sub></i>, where <i class="v v-M">M<sub>DP</sub></i>
   is the number of mesh axes.</div>
@@ -239,8 +239,8 @@
   <strong>This would allow us to scale to roughly
   <span class="t-out" data-expr="4e7*3/alpha" data-fmt="chips"></span> chips,
   or around
-  <span class="t-out" data-expr="4e7*3/alpha/8960" data-fmt="int"></span>
-  TPUv5 pods, before we hit a bandwidth
+  <span class="t-out" data-expr="4e7*3/alpha/podSize" data-fmt="int"></span>
+  <span class="tm" data-g="nodes">TPUv5 pods</span>, before we hit a bandwidth
   limit.</strong><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Load
   the DeepSeek scenario with the button below, then make the batch your own:
   the mini-calculator that follows is an addition of this edition. With
@@ -273,8 +273,8 @@
   tokens over roughly <i class="v v-B">B</i> / (α / 3) =
   <span class="t-out" data-expr="B/(alpha/3)" data-fmt="chips"></span> chips
   (roughly
-  <span class="t-out" data-expr="(B/(alpha/3))/8960" data-fmt="int"></span>
-  pods of 8960 chips), each with
+  <span class="t-out" data-expr="(B/(alpha/3))/podSize" data-fmt="int"></span>
+  <span class="tm">pods</span> of <span class="t-out" data-expr="podSize" data-fmt="int"></span> chips), each with
   <span class="t-out" data-expr="C" data-fmt="e"></span> FLOPs running at
   <span class="t-var" data-var="MFU" data-min="0.05" data-max="1" data-scale="lin" data-step="0.05" data-fmt="pct"></span>
   peak FLOPs utilization (often called MFU), and <strong>train it in

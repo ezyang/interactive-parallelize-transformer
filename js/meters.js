@@ -81,7 +81,7 @@
         "), 4·B·D / (" + axLabel("X") + "·Wici·" + axLabel("MY") + "))",
     },
     dcn: {
-      label: () => "cross-pod data parallelism over DCN (backward pass)",
+      label: () => Core.get().gpu >= 0.5 ? "cross-node data parallelism over InfiniBand (backward pass)" : "cross-pod data parallelism over DCN (backward pass)",
       color: SER.s1,
       tm: (S) => (8 * S.B * S.D * S.k * S.F) / (S.DP * S.TP * S.C),
       tc: (S) => (8 * S.D * S.E * S.F) / (S.podSize * S.Wdcn),

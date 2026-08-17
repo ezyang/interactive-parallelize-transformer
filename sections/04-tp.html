@@ -23,12 +23,12 @@
   the model and move the activations during the layer — this is called
   &ldquo;1D model parallelism&rdquo; or Megatron sharding
   (<a href="https://arxiv.org/abs/1909.08053">Shoeybi et al. 2019</a>). This can
-  unlock a smaller efficient batch size per pod.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+  unlock a smaller efficient batch size per <span class="tm">pod</span>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
   This is the flat orange line from <a href="#roofline">the roofline primer</a>:
   when the <em>activations</em> move, the comms cost scales with the batch just
   as the compute does, so its efficiency doesn&rsquo;t hinge on the per-chip
   batch at all — which is exactly why it can unlock a smaller efficient batch
-  per pod.</span></span> The figure below shows an example of a single matrix
+  per <span class="tm">pod</span>.</span></span> The figure below shows an example of a single matrix
   sharded in this way:</p>
 
   <figure class="breakout">
@@ -135,7 +135,7 @@
   <div class="eq-live">right now, per layer, with
     <i class="v v-M">M<sub>TP</sub></i> =
     <span class="t-var" data-var="MTP" data-min="1" data-max="3" data-scale="lin" data-snap="int" data-fmt="int"></span>
-    ICI axes carrying <i class="v v-TP">TP</i><span class="t-show inline" data-expr="E>1"> (MoE: the sharded math runs through the activated width k·F)</span>:
+    <span class="tm" data-g="NVLink">ICI</span> axes carrying <i class="v v-TP">TP</i><span class="t-show inline" data-expr="E>1"> (MoE: the sharded math runs through the activated width k·F)</span>:
     <span class="t-out" data-expr="4*B*D*k*F/(TP*C)" data-fmt="time"></span> of math vs
     <span class="t-out" data-expr="4*B*D/(Wici*MTP)" data-fmt="time"></span> of comms →
     <span class="t-if" data-expr="k*F &gt; TP*alpha/MTP" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
@@ -181,12 +181,12 @@
     → <span class="t-if" data-expr="k*F &gt; TP*alpha/MTP" data-then="under the roof — compute-bound ✓" data-else="over the roof — communication-bound ✗"></span>
   </div>
 
-  <p>Thus for instance, for TPUv5p,
+  <p>Thus for instance, for <span class="tm" data-g="our GPU">TPUv5p</span>,
   <span class="eq-i"><i class="v v-C">C</i>/<i class="v v-W">W<sub>ici</sub></i></span> =
   <span class="t-out" data-expr="alpha" data-fmt="int"></span> in bf16, so we can
   only do tensor parallelism up to
   <span class="eq-i"><i class="v v-TP">TP</i> &lt; <i class="v v-F">F</i> / <span class="t-out" data-expr="alpha" data-fmt="int"></span></span>.
-  When we have multiple ICI axes, our T<sub>comms</sub> is reduced by a factor of
+  When we have multiple <span class="tm" data-g="NVLink">ICI</span> axes, our T<sub>comms</sub> is reduced by a factor of
   <i class="v v-M">M<sub>TP</sub></i>, so we get
   <span class="eq-i"><i class="v v-TP">TP</i> &lt; <i class="v v-M">M<sub>TP</sub></i> · <i class="v v-F">F</i> / <span class="t-out" data-expr="alpha" data-fmt="int"></span></span>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
   Try it on the meter below: double <i class="v v-TP">TP</i> =
@@ -215,7 +215,7 @@
   single node (<i class="v v-TP">TP</i> ≤ 8) or at most two (<a href="#gpus">details</a>).</span></span></span></div>
 
   <p><strong>Note that this doesn't depend on the precision of the
-  computation</strong>, since e.g. for int8, on TPUv5p,
+  computation</strong>, since e.g. for int8, on <span class="tm" data-g="our GPU">TPUv5p</span>,
   <span class="eq-i">C<sub>int8</sub>/<i class="v v-W">W<sub>ici</sub></i></span> is
   <span class="t-out" data-expr="2*alpha" data-fmt="int"></span> instead of
   <span class="t-out" data-expr="alpha" data-fmt="int"></span> but the comms

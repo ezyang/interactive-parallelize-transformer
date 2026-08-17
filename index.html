@@ -85,6 +85,7 @@
     <span class="k">✦&nbsp;margin notes</span> are this adaptation's voice — written by Fable, the Anthropic model that built this edition — instructions, asides, and the added
     <a href="#roofline">roofline primer</a>, <a href="#expert-parallelism">expert parallelism</a>, and <a href="#gpus">GPU network</a> sections;
     the chapter's single-letter mesh-axis names are rendered as named parallelism degrees throughout — its X is <span class="k">DP</span>, its Y is <span class="k">TP</span>, the pipelining section's Z is <span class="k">PP</span>, and chapter 12's expert axis Z is <span class="k">EP</span> (a global substitution; each is its own scrubbable variable, adjusted in the text where its section uses it);
+    under a GPU preset the hardware vocabulary follows suit — TPU→GPU, ICI→NVLink, DCN→InfiniBand, pod→node, MXU→tensor&nbsp;core — so the article reads as one consistent machine, and any TPU preset restores the chapter's exact words (sentences that deliberately <em>compare</em> the two never swap);
     content woven <span class="add">into the chapter's text by this edition</span> carries a dotted underline like that (and splice edits beside it that standard quotation practice would allow — a bracket or an ellipsis — go unmarked);
     where a sentence had to be altered to host a live element, a <span class="k">Δ&nbsp;margin note</span> quotes the original and states the change;
     and where this edition's additions make a chapter statement inaccurate as written, an italic <span class="ed">(Ed:&nbsp;…)</span> interjection corrects it in place.</p>
@@ -111,7 +112,7 @@ per-device computation we can use to hide it. As we saw in
 <a href="https://jax-ml.github.io/scaling-book/sharding/">Section 3</a>, sharded
 matrix multiplications often require expensive
 <span class="op op-ag">AllGather</span>s or
-<span class="op op-rs">ReduceScatter</span>s that can block the TPUs from doing
+<span class="op op-rs">ReduceScatter</span>s that can block the <span class="tm">TPUs</span> from doing
 useful work. The goal of this section is to find out when these become
 <em>too expensive.</em></p>
 
@@ -129,7 +130,7 @@ important, they typically do not bound us when using rematerialization
 <a href="#expert-parallelism">expert parallelism</a>, unlike the
 original.)</span></span></span> For this section, you can focus solely on inter-chip
 communication costs, since as long as we have a large enough single-chip batch
-size, the transfer of data from HBM to MXU is already overlapped with
+size, the transfer of data from HBM to <span class="tm">MXU</span> is already overlapped with
 computation.</p>
 
 <p>We'll use the following notation to simplify calculations throughout this
@@ -461,7 +462,7 @@ answers that question for all four.</span></span></p>
 
 <p>When a chip works on one layer of our Transformer, two clocks run <em>at the same time</em>:</p>
 
-<p>The <strong>compute clock</strong>: the MXU has to chew through this layer's share of FLOPs. With
+<p>The <strong>compute clock</strong>: the <span class="tm">MXU</span> has to chew through this layer's share of FLOPs. With
 <span class="v v-B">B</span> = <span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span> tokens
 split over <span class="v v-DP">DP</span> = <span class="t-var" data-var="DP" data-min="1" data-max="65536" data-scale="log" data-snap="pow2" data-fmt="int"></span> chips,
 that's <span class="eq-i"><span class="frac"><span>4 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · <span class="t-show inline" data-expr="E>1">k·</span><i class="v v-F">F</i></span><span><i class="v v-DP">DP</i> · <i class="v v-C">C</i></span></span></span> =
@@ -469,7 +470,7 @@ that's <span class="eq-i"><span class="frac"><span>4 · <i class="v v-B">B</i> �
 
 <p>The <strong>network clock</strong>: whatever bytes this scheme moves have to squeeze through the interconnect at
 <span class="v v-W">W<sub>ici</sub></span> = <span class="t-var" data-var="Wici" data-min="1e10" data-max="2e12" data-scale="log" data-fmt="bw"></span>.
-Crucially, the hardware lets these two clocks <em>overlap</em>: the network can carry bytes while the MXU multiplies. So a layer doesn't cost the <em>sum</em> of the two times — it costs the <strong>max</strong>. Communication that fits under the compute clock is <em>free</em>. Communication that pokes out past it leaves silicon idle, and that overhang is exactly what "communication-bound" means.</p>
+Crucially, the hardware lets these two clocks <em>overlap</em>: the network can carry bytes while the <span class="tm">MXU</span> multiplies. So a layer doesn't cost the <em>sum</em> of the two times — it costs the <strong>max</strong>. Communication that fits under the compute clock is <em>free</em>. Communication that pokes out past it leaves silicon idle, and that overhang is exactly what "communication-bound" means.</p>
 
 <figure class="breakout">
   <div class="widget" data-widget="overlap-timeline" data-opts='{}'></div>
@@ -529,9 +530,9 @@ Crucially, the hardware lets these two clocks <em>overlap</em>: the network can 
 <p>When your model fits on a single chip with even a tiny batch size (&gt;240
 tokens, so as to be compute-bound), <strong>you should always use simple data
 parallelism.</strong> Pure data parallelism splits our activations across any
-number of TPUs so long as the number of TPUs is smaller than our batch size.
+number of <span class="tm">TPUs</span> so long as the number of <span class="tm">TPUs</span> is smaller than our batch size.
 The forward pass involves no communication, but at the end of every step,
-<strong>each TPU performs an <span class="op op-ar">AllReduce</span> on its
+<strong>each <span class="tm">TPU</span> performs an <span class="op op-ar">AllReduce</span> on its
 local gradients to synchronize them before updating the
 parameters.</strong><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
 Everything on this page is live. The batch is currently
@@ -547,7 +548,7 @@ number — every equation, meter, and verdict below recomputes.</span></span></p
   <div class="widget" data-widget="shard-grid" data-opts='{"scheme":"dp"}'></div>
   <figcaption>A diagram of pure data parallelism (forward pass). Our activations
   (left) are fully sharded along the batch dimension and our weights are fully
-  replicated, so each TPU has an identical copy of the weights. This means the
+  replicated, so each <span class="tm">TPU</span> has an identical copy of the weights. This means the
   total memory of our weights is increased by a factor of
   <i class="v v-DP">DP</i>, but no communication is required on the forward-pass.
   Hover a chip to see exactly which slice of the batch it owns.</figcaption>
@@ -611,14 +612,14 @@ often dominate our memory usage, this is very helpful.</p>
 <p><strong>Why not do this?</strong> Pure data parallelism does nothing to
 reduce memory pressure from model parameters or optimizer states, which means
 pure data parallelism is rarely useful for interesting models at scale where
-our parameters + optimizer state don't fit in a single TPU. To give a sense of
+our parameters + optimizer state don't fit in a single <span class="tm">TPU</span>. To give a sense of
 scale, if we train with parameters in bf16 and optimizer state in fp32 with
 Adam<span class="sn"><button class="sn-ref" aria-label="sidenote">◦</button><span class="sn-body">Adam
 stores parameters, first order and second order accumulators. Since the params
 are in bfloat16 and optimizer state is in float32, this gives us
 <code>2 + 8 = 10</code> bytes per parameters.</span></span>, the largest model
-we can fit has <span class="eq-i">TPU memory / 10</span> parameters, so e.g. on
-a TPUv5p chip with
+we can fit has <span class="eq-i"><span class="tm" data-g="GPU">TPU</span> memory / 10</span> parameters, so e.g. on
+a <span class="tm" data-g="GPU">TPUv5p</span> chip with
 <span class="t-var" data-var="HBM" data-min="8e9" data-max="1e12" data-scale="log" data-fmt="bytes"></span>
 of HBM and pure data parallelism this is about
 <span class="t-out" data-expr="HBM/10" data-fmt="si"></span> parameters.</p>
@@ -635,7 +636,7 @@ of HBM and pure data parallelism this is about
 
 <div class="takeaway"><strong>Takeaway</strong>: the largest model we can train
 with Adam and pure data parallelism has
-<span class="eq-i">num_params = HBM per device / 10</span>. For TPU v5p this is
+<span class="eq-i">num_params = HBM per device / 10</span>. For <span class="tm" data-g="our GPU">TPU v5p</span> this is
 roughly <span class="t-out" data-expr="HBM/10" data-fmt="si"></span>
 parameters.<span class="sn"><button class="sn-ref" aria-label="sidenote">◦</button><span class="sn-body">Note
 that this doesn't include gradient checkpoints, so this wouldn't actually be
@@ -660,7 +661,7 @@ enough per-chip batch can always hide.</span></span></p>
 <i class="v v-W">W<sub>ici</sub></i> = <strong>bidirectional</strong> network
 bandwidth, and <i class="v v-DP">DP</i> = number of shards across which the batch
 is partitioned<span class="sn"><button class="sn-ref" aria-label="sidenote">◦</button><span class="sn-body">We
-assume this partitioning is done over an ICI mesh, so the relevant network
+assume this partitioning is done over an <span class="tm" data-g="NVLink fabric">ICI mesh</span>, so the relevant network
 bandwidth is W<sub>ici</sub>.</span></span>. Let's calculate the time required
 to perform the relevant matmuls, T<sub>math</sub>, and the required
 communication time T<sub>comms</sub>. Since this parallelism scheme requires no
@@ -669,7 +670,7 @@ for the backwards pass.</p>
 
 <p><em>Communication time:</em> From a previous section we know that the time
 required to perform an AllReduce in a 1D mesh depends only on the total bytes
-of the array being AllReduced and the ICI bandwidth
+of the array being AllReduced and the <span class="tm" data-g="NVLink">ICI</span> bandwidth
 <i class="v v-W">W<sub>ici</sub></i>; specifically the AllReduce time is
 2 · total bytes / W<sub>ici</sub>. Since we need to AllReduce for both
 W<sub>in</sub> and W<sub>out</sub>, we have 2 AllReduces per layer. Each
@@ -755,7 +756,7 @@ when</p>
 
 <p>The upshot is that, to remain compute-bound with data parallelism, we need
 the per-device batch size <i class="v v-B">B</i>/<i class="v v-DP">DP</i> to
-exceed the ICI operational intensity,
+exceed the <span class="tm" data-g="NVLink">ICI</span> operational intensity,
 <i class="v v-C">C</i>/<i class="v v-W">W<sub>ici</sub></i>. This is ultimately
 a consequence of the fact that the computation time scales with the per-device
 batch size, while the communication time is independent of this quantity (since
@@ -849,10 +850,10 @@ inflates this per-chip floor by E/k =
   <a href="#expert-parallelism">its own section</a> below.</span></span></p>
 </div>
 
-<p>Let's put in some real numbers to get a sense of scale. For TPUv5p,
+<p>Let's put in some real numbers to get a sense of scale. For <span class="tm" data-g="our GPU">TPUv5p</span>,
 <code>C</code> = <span class="t-var" data-var="C" data-min="1e13" data-max="5e15" data-scale="log" data-fmt="e"></span>
 and <code>W</code> = <span class="t-var" data-var="Wici" data-min="1e10" data-max="2e12" data-scale="log" data-fmt="e"></span>
-for 1D data parallelism over ICI, so <strong>our batch size per chip must be at
+for 1D data parallelism over <span class="tm" data-g="NVLink">ICI</span>, so <strong>our batch size per chip must be at
 least <span class="t-out" data-expr="alpha" data-fmt="int"></span> to avoid
 being
 communication-bound</strong>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
@@ -862,15 +863,15 @@ machine bar and this floor moves with it.</span></span> Since we can do data
 parallelism over multiple axes, if we dedicate all three axes of a TPUv5p pod
 to pure data parallelism, we 3x our bandwidth
 <i class="v v-W">W<sub>ici</sub></i> and can scale down to only
-BS=<span class="t-out" data-expr="alpha/3" data-fmt="int"></span> per TPU or
+BS=<span class="t-out" data-expr="alpha/3" data-fmt="int"></span> per <span class="tm">TPU</span> or
 <span class="t-out" data-expr="podSize*alpha/3" data-fmt="tokens"></span>
-tokens per batch per pod (of
+tokens per batch per <span class="tm">pod</span> (of
 <span class="t-out" data-expr="podSize" data-fmt="int"></span> chips)!
 <strong>This tells us that it's fairly hard to become bottlenecked by pure data
 parallelism!</strong></p>
 
 <div class="preset-row"><span class="preset-label">Try:</span>
-  <button class="t-preset" data-set='{"DP":8192,"TP":1,"MDP":3,"MTP":1,"B":7600000}'>8,192 chips (≈ a pod), 3 axes, 7.6M batch (right at the ridge)</button>
+  <button class="t-preset" data-set='{"DP":8192,"TP":1,"MDP":3,"MTP":1,"B":7600000}'>8,192 chips (≈ a <span class="tm">pod</span>), 3 axes, 7.6M batch (right at the ridge)</button>
   <button class="t-preset" data-set='{"DP":8192,"TP":1,"MDP":1,"MTP":1,"B":7600000}'>same, but only 1 axis</button>
   <button class="t-preset" data-set='{"DP":512,"TP":8,"MDP":2,"MTP":1,"B":2000000}'>page defaults</button>
 </div>
@@ -1049,9 +1050,9 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   states across a set of devices.</p>
 
   <p><strong>Why would we do this?</strong> Standard data parallelism involves
-  a lot of duplicated work. Each TPU <span class="op op-ar">AllReduce</span>s
+  a lot of duplicated work. Each <span class="tm">TPU</span> <span class="op op-ar">AllReduce</span>s
   the full gradient, then updates the full optimizer state (identical work on
-  all TPUs), then updates the parameters (again, fully duplicated). For ZeRO
+  all <span class="tm">TPUs</span>), then updates the parameters (again, fully duplicated). For ZeRO
   sharding (sharding the gradients/optimizer state), instead of an AllReduce,
   you can <span class="op op-rs">ReduceScatter</span> the gradients, update
   only your shard of the optimizer state, update a shard of the parameters,
@@ -1122,7 +1123,7 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   <span class="eq-i"><i class="v v-B">B</i> / <i class="v v-DP">DP</i> &gt;
   <i class="v v-C">C</i> / <i class="v v-W">W<sub>ici</sub></i></span>, i.e.
   when the per-device batch size <i class="v v-B">B</i>/<i class="v v-DP">DP</i>
-  exceeds the "ICI operational intensity"
+  exceeds the "<span class="tm" data-g="NVLink">ICI</span> operational intensity"
   <i class="v v-C">C</i>/<i class="v v-W">W<sub>ici</sub></i>
   (<span class="t-out" data-expr="C" data-fmt="e"></span> /
   <span class="t-out" data-expr="Wici" data-fmt="e"></span> =
@@ -1152,7 +1153,7 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   </figure>
 
   <div class="takeaway"><strong>Takeaway:</strong> Both FSDP and pure Data
-  Parallelism become bandwidth bound on TPUv5 when the batch size per device
+  Parallelism become bandwidth bound on <span class="tm" data-g="our GPU">TPUv5</span> when the batch size per device
   is less than <span class="t-out" data-expr="alpha" data-fmt="int"></span> /
   <i class="v v-M">M<sub>DP</sub></i>, where <i class="v v-M">M<sub>DP</sub></i>
   is the number of mesh axes.</div>
@@ -1162,8 +1163,8 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   <strong>This would allow us to scale to roughly
   <span class="t-out" data-expr="4e7*3/alpha" data-fmt="chips"></span> chips,
   or around
-  <span class="t-out" data-expr="4e7*3/alpha/8960" data-fmt="int"></span>
-  TPUv5 pods, before we hit a bandwidth
+  <span class="t-out" data-expr="4e7*3/alpha/podSize" data-fmt="int"></span>
+  <span class="tm" data-g="nodes">TPUv5 pods</span>, before we hit a bandwidth
   limit.</strong><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Load
   the DeepSeek scenario with the button below, then make the batch your own:
   the mini-calculator that follows is an addition of this edition. With
@@ -1196,8 +1197,8 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   tokens over roughly <i class="v v-B">B</i> / (α / 3) =
   <span class="t-out" data-expr="B/(alpha/3)" data-fmt="chips"></span> chips
   (roughly
-  <span class="t-out" data-expr="(B/(alpha/3))/8960" data-fmt="int"></span>
-  pods of 8960 chips), each with
+  <span class="t-out" data-expr="(B/(alpha/3))/podSize" data-fmt="int"></span>
+  <span class="tm">pods</span> of <span class="t-out" data-expr="podSize" data-fmt="int"></span> chips), each with
   <span class="t-out" data-expr="C" data-fmt="e"></span> FLOPs running at
   <span class="t-var" data-var="MFU" data-min="0.05" data-max="1" data-scale="lin" data-step="0.05" data-fmt="pct"></span>
   peak FLOPs utilization (often called MFU), and <strong>train it in
@@ -1272,12 +1273,12 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   the model and move the activations during the layer — this is called
   &ldquo;1D model parallelism&rdquo; or Megatron sharding
   (<a href="https://arxiv.org/abs/1909.08053">Shoeybi et al. 2019</a>). This can
-  unlock a smaller efficient batch size per pod.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+  unlock a smaller efficient batch size per <span class="tm">pod</span>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
   This is the flat orange line from <a href="#roofline">the roofline primer</a>:
   when the <em>activations</em> move, the comms cost scales with the batch just
   as the compute does, so its efficiency doesn&rsquo;t hinge on the per-chip
   batch at all — which is exactly why it can unlock a smaller efficient batch
-  per pod.</span></span> The figure below shows an example of a single matrix
+  per <span class="tm">pod</span>.</span></span> The figure below shows an example of a single matrix
   sharded in this way:</p>
 
   <figure class="breakout">
@@ -1384,7 +1385,7 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   <div class="eq-live">right now, per layer, with
     <i class="v v-M">M<sub>TP</sub></i> =
     <span class="t-var" data-var="MTP" data-min="1" data-max="3" data-scale="lin" data-snap="int" data-fmt="int"></span>
-    ICI axes carrying <i class="v v-TP">TP</i><span class="t-show inline" data-expr="E>1"> (MoE: the sharded math runs through the activated width k·F)</span>:
+    <span class="tm" data-g="NVLink">ICI</span> axes carrying <i class="v v-TP">TP</i><span class="t-show inline" data-expr="E>1"> (MoE: the sharded math runs through the activated width k·F)</span>:
     <span class="t-out" data-expr="4*B*D*k*F/(TP*C)" data-fmt="time"></span> of math vs
     <span class="t-out" data-expr="4*B*D/(Wici*MTP)" data-fmt="time"></span> of comms →
     <span class="t-if" data-expr="k*F &gt; TP*alpha/MTP" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
@@ -1430,12 +1431,12 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
     → <span class="t-if" data-expr="k*F &gt; TP*alpha/MTP" data-then="under the roof — compute-bound ✓" data-else="over the roof — communication-bound ✗"></span>
   </div>
 
-  <p>Thus for instance, for TPUv5p,
+  <p>Thus for instance, for <span class="tm" data-g="our GPU">TPUv5p</span>,
   <span class="eq-i"><i class="v v-C">C</i>/<i class="v v-W">W<sub>ici</sub></i></span> =
   <span class="t-out" data-expr="alpha" data-fmt="int"></span> in bf16, so we can
   only do tensor parallelism up to
   <span class="eq-i"><i class="v v-TP">TP</i> &lt; <i class="v v-F">F</i> / <span class="t-out" data-expr="alpha" data-fmt="int"></span></span>.
-  When we have multiple ICI axes, our T<sub>comms</sub> is reduced by a factor of
+  When we have multiple <span class="tm" data-g="NVLink">ICI</span> axes, our T<sub>comms</sub> is reduced by a factor of
   <i class="v v-M">M<sub>TP</sub></i>, so we get
   <span class="eq-i"><i class="v v-TP">TP</i> &lt; <i class="v v-M">M<sub>TP</sub></i> · <i class="v v-F">F</i> / <span class="t-out" data-expr="alpha" data-fmt="int"></span></span>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
   Try it on the meter below: double <i class="v v-TP">TP</i> =
@@ -1464,7 +1465,7 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   single node (<i class="v v-TP">TP</i> ≤ 8) or at most two (<a href="#gpus">details</a>).</span></span></span></div>
 
   <p><strong>Note that this doesn't depend on the precision of the
-  computation</strong>, since e.g. for int8, on TPUv5p,
+  computation</strong>, since e.g. for int8, on <span class="tm" data-g="our GPU">TPUv5p</span>,
   <span class="eq-i">C<sub>int8</sub>/<i class="v v-W">W<sub>ici</sub></i></span> is
   <span class="t-out" data-expr="2*alpha" data-fmt="int"></span> instead of
   <span class="t-out" data-expr="alpha" data-fmt="int"></span> but the comms
@@ -1785,7 +1786,7 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
 
   <p>By letting
   <span class="eq-i">α ≡ <i class="v v-C">C</i> / <i class="v v-W">W<sub>ici</sub></i></span>,
-  the ICI arithmetic intensity, we can simplify:</p>
+  the <span class="tm" data-g="NVLink">ICI</span> arithmetic intensity, we can simplify:</p>
 
   <div class="eq">
     max<span class="eq-i">(
@@ -1908,7 +1909,7 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   4×4×4 chapter-example preset above to reproduce the chapter's exact
   frame.</span></span></p>
 
-  <p>Here's another example of TPU v5p 16x16x16 showing the FLOPs and comms
+  <p>Here's another example of <span class="tm" data-g="the live hardware">TPU v5p 16x16x16</span> showing the FLOPs and comms
   time as a function of batch size for different sharding
   schemes.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
   That second figure is the same chart in <em>absolute-times</em> view. A
@@ -2150,18 +2151,18 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
 
   <div class="algorithm">
     <ol>
-      <li>Initialize your data on TPU 0 with your weights sharded across the layer
+      <li>Initialize your data on <span class="tm">TPU</span> 0 with your weights sharded across the layer
         dimension (<span class="shape">W<sub>in</sub>[L<sub>PP</sub>, D<sub>DP</sub>, F<sub>TP</sub>]</span>
         for pipelining with FSDP and tensor parallelism).</li>
-      <li>Perform the first layer on TPU 0, then copy the resulting activations to
-        TPU 1, and repeat until you get to the last TPU.</li>
+      <li>Perform the first layer on <span class="tm">TPU</span> 0, then copy the resulting activations to
+        <span class="tm">TPU</span> 1, and repeat until you get to the last <span class="tm">TPU</span>.</li>
       <li>Compute the loss function and its derivative
         <span class="eq-i">∂L/∂x<sub>L</sub></span>.</li>
       <li>For the last pipeline stage, compute the derivatives
         <span class="eq-i">∂L/∂W<sub>L</sub></span> and
         <span class="eq-i">∂L/∂x<sub>L−1</sub></span>, then copy
         <span class="eq-i">∂L/∂x<sub>L−1</sub></span> to the previous pipeline stage
-        and repeat until you reach TPU 0.</li>
+        and repeat until you reach <span class="tm">TPU</span> 0.</li>
     </ol>
   </div>
 
@@ -2234,7 +2235,7 @@ for i in range(num_layers - 1, -1, -1):
   </div>
 
   <p><strong>Why is this difficult/annoying?</strong> You might have noticed in the
-  pseudocode above that TPU 0 is almost always idle! It's only doing work on the very
+  pseudocode above that <span class="tm">TPU</span> 0 is almost always idle! It's only doing work on the very
   first and last step of the pipeline. The period of idleness is called a pipeline
   bubble and is very annoying to deal with. Typically we try to mitigate this first
   with microbatching, which sends
@@ -2243,11 +2244,11 @@ for i in range(num_layers - 1, -1, -1):
   small batches through the
   <i class="v v-PP">PP</i> =
   <span class="t-var" data-var="PP" data-min="1" data-max="32" data-scale="lin" data-snap="int" data-fmt="int"></span>-stage
-  pipeline, keeping TPU 0 utilized for at least a larger fraction of the total step
+  pipeline, keeping <span class="tm">TPU</span> 0 utilized for at least a larger fraction of the total step
   time.<span class="sn edit"><button class="sn-ref" aria-label="edit note">Δ</button><span class="sn-body"><span class="sn-tag">edited</span> The
   chapter reads: <span class="orig">“Typically we try to mitigate this first with
   microbatching, which sends multiple small batches through the pipeline, keeping
-  TPU 0 utilized for at least a larger fraction of the total step
+  <span class="tm">TPU</span> 0 utilized for at least a larger fraction of the total step
   time.”</span> — reworded to host the scrubbable microbatch and stage
   counts.<span class="sn-post"><span class="sn-tag">adaptation</span> The
   chapter never states the bubble-fraction formula; the equation below is ours, for a
