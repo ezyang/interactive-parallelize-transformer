@@ -9,10 +9,10 @@
 
   <p><strong>Syntax:</strong></p>
   <div class="eq">
-    <span class="shape">In[B<sub>X</sub>, D]</span> ·<sub>D</sub>
-    <span class="shape">W<sub>in</sub>[D<sub>X</sub>, F]</span> ·<sub>F</sub>
-    <span class="shape">W<sub>out</sub>[F, D<sub>X</sub>]</span> →
-    <span class="shape">Out[B<sub>X</sub>, D]</span>
+    <span class="shape">In[B<sub>DP</sub>, D]</span> ·<sub>D</sub>
+    <span class="shape">W<sub>in</sub>[D<sub>DP</sub>, F]</span> ·<sub>F</sub>
+    <span class="shape">W<sub>out</sub>[F, D<sub>DP</sub>]</span> →
+    <span class="shape">Out[B<sub>DP</sub>, D]</span>
   </div>
 
   <p>Fully-sharded data parallelism (often called FSDP or
@@ -26,7 +26,7 @@
     <div class="widget" data-widget="shard-grid" data-opts='{"scheme":"fsdp"}'></div>
     <figcaption>FSDP shards the contracting dimension of W<sub>in</sub> and the
     output dimension of W<sub>out</sub> along the data dimension — here
-    <i class="v v-X">X</i> = <span class="t-var" data-var="X" data-min="1" data-max="65536" data-scale="log" data-snap="pow2" data-fmt="int"></span> shards.
+    <i class="v v-DP">DP</i> = <span class="t-var" data-var="DP" data-min="1" data-max="65536" data-scale="log" data-snap="pow2" data-fmt="int"></span> shards.
     This reduces memory but (from
     <a href="https://jax-ml.github.io/scaling-book/sharding/">Section 3</a>)
     requires us to gather the weights for W before we perform the matmul. Note
@@ -48,7 +48,7 @@
   weights during the backward pass at no extra cost.</p>
 
   <figure class="breakout">
-    <div class="widget" data-widget="collective" data-opts='{"op":"ar-decomp","bytesExpr":"2*D*E*F","axisVar":"MX","label":"AllReduce = ReduceScatter + AllGather"}'></div>
+    <div class="widget" data-widget="collective" data-opts='{"op":"ar-decomp","bytesExpr":"2*D*E*F","axisVar":"MDP","label":"AllReduce = ReduceScatter + AllGather"}'></div>
     <figcaption>The decomposition, animated: the
     <span class="op op-ar">AllReduce</span> that DP runs on each
     2<i class="v v-D">D</i><span class="t-show inline" data-expr="E>1"><i class="v">E</i></span><i class="v v-F">F</i> =
@@ -62,50 +62,50 @@
     <summary>Here's the full algorithm for FSDP.</summary>
     <div class="algorithm">
       <p><strong>Fully-Sharded Data Parallelism (FSDP):</strong></p>
-      <p class="phase"><strong>Forward pass:</strong> need to compute Loss[B<sub>X</sub>]</p>
+      <p class="phase"><strong>Forward pass:</strong> need to compute Loss[B<sub>DP</sub>]</p>
       <ol>
         <li><span class="shape">W<sub>in</sub>[D, F]</span> =
-          <span class="op op-ag">AllGather</span>(<span class="shape">W<sub>in</sub>[D<sub>X</sub>, F]</span>)
+          <span class="op op-ag">AllGather</span>(<span class="shape">W<sub>in</sub>[D<sub>DP</sub>, F]</span>)
           <span class="cmt">(not on critical path, can do it during previous layer)</span></li>
-        <li><span class="shape">Tmp[B<sub>X</sub>, F]</span> =
-          <span class="shape">In[B<sub>X</sub>, D]</span> ·<sub>D</sub>
+        <li><span class="shape">Tmp[B<sub>DP</sub>, F]</span> =
+          <span class="shape">In[B<sub>DP</sub>, D]</span> ·<sub>D</sub>
           <span class="shape">W<sub>in</sub>[D, F]</span>
           <span class="cmt">(can throw away W<sub>in</sub>[D, F] now)</span></li>
         <li><span class="shape">W<sub>out</sub>[F, D]</span> =
-          <span class="op op-ag">AllGather</span>(<span class="shape">W<sub>out</sub>[F, D<sub>X</sub>]</span>)
+          <span class="op op-ag">AllGather</span>(<span class="shape">W<sub>out</sub>[F, D<sub>DP</sub>]</span>)
           <span class="cmt">(not on critical path, can do it during previous layer)</span></li>
-        <li><span class="shape">Out[B<sub>X</sub>, D]</span> =
-          <span class="shape">Tmp[B<sub>X</sub>, F]</span> ·<sub>F</sub>
+        <li><span class="shape">Out[B<sub>DP</sub>, D]</span> =
+          <span class="shape">Tmp[B<sub>DP</sub>, F]</span> ·<sub>F</sub>
           <span class="shape">W<sub>out</sub>[F, D]</span></li>
-        <li><span class="shape">Loss[B<sub>X</sub>]</span> = …</li>
+        <li><span class="shape">Loss[B<sub>DP</sub>]</span> = …</li>
       </ol>
-      <p class="phase"><strong>Backward pass:</strong> need to compute dW<sub>out</sub>[F, D<sub>X</sub>], dW<sub>in</sub>[D<sub>X</sub>, F]</p>
+      <p class="phase"><strong>Backward pass:</strong> need to compute dW<sub>out</sub>[F, D<sub>DP</sub>], dW<sub>in</sub>[D<sub>DP</sub>, F]</p>
       <ol>
-        <li><span class="shape">dOut[B<sub>X</sub>, D]</span> = …</li>
-        <li><span class="shape">dW<sub>out</sub>[F, D] {U<sub>X</sub>}</span> =
-          <span class="shape">Tmp[B<sub>X</sub>, F]</span> ·<sub>B</sub>
-          <span class="shape">dOut[B<sub>X</sub>, D]</span></li>
-        <li><span class="shape">dW<sub>out</sub>[F, D<sub>X</sub>]</span> =
-          <span class="op op-rs">ReduceScatter</span>(<span class="shape">dW<sub>out</sub>[F, D] {U<sub>X</sub>}</span>)
+        <li><span class="shape">dOut[B<sub>DP</sub>, D]</span> = …</li>
+        <li><span class="shape">dW<sub>out</sub>[F, D] {U<sub>DP</sub>}</span> =
+          <span class="shape">Tmp[B<sub>DP</sub>, F]</span> ·<sub>B</sub>
+          <span class="shape">dOut[B<sub>DP</sub>, D]</span></li>
+        <li><span class="shape">dW<sub>out</sub>[F, D<sub>DP</sub>]</span> =
+          <span class="op op-rs">ReduceScatter</span>(<span class="shape">dW<sub>out</sub>[F, D] {U<sub>DP</sub>}</span>)
           <span class="cmt">(not on critical path, can be done async)</span></li>
         <li><span class="shape">W<sub>out</sub>[F, D]</span> =
-          <span class="op op-ag">AllGather</span>(<span class="shape">W<sub>out</sub>[F, D<sub>X</sub>]</span>)
+          <span class="op op-ag">AllGather</span>(<span class="shape">W<sub>out</sub>[F, D<sub>DP</sub>]</span>)
           <span class="cmt">(can be done ahead of time)</span></li>
-        <li><span class="shape">dTmp[B<sub>X</sub>, F]</span> =
-          <span class="shape">dOut[B<sub>X</sub>, D]</span> ·<sub>D</sub>
+        <li><span class="shape">dTmp[B<sub>DP</sub>, F]</span> =
+          <span class="shape">dOut[B<sub>DP</sub>, D]</span> ·<sub>D</sub>
           <span class="shape">W<sub>out</sub>[F, D]</span>
           <span class="cmt">(can throw away W<sub>out</sub>[F, D] here)</span></li>
-        <li><span class="shape">dW<sub>in</sub>[D, F] {U<sub>X</sub>}</span> =
-          <span class="shape">In[B<sub>X</sub>, D]</span> ·<sub>B</sub>
-          <span class="shape">dTmp[B<sub>X</sub>, F]</span></li>
-        <li><span class="shape">dW<sub>in</sub>[D<sub>X</sub>, F]</span> =
-          <span class="op op-rs">ReduceScatter</span>(<span class="shape">dW<sub>in</sub>[D, F] {U<sub>X</sub>}</span>)
+        <li><span class="shape">dW<sub>in</sub>[D, F] {U<sub>DP</sub>}</span> =
+          <span class="shape">In[B<sub>DP</sub>, D]</span> ·<sub>B</sub>
+          <span class="shape">dTmp[B<sub>DP</sub>, F]</span></li>
+        <li><span class="shape">dW<sub>in</sub>[D<sub>DP</sub>, F]</span> =
+          <span class="op op-rs">ReduceScatter</span>(<span class="shape">dW<sub>in</sub>[D, F] {U<sub>DP</sub>}</span>)
           <span class="cmt">(not on critical path, can be done async)</span></li>
         <li><span class="shape">W<sub>in</sub>[D, F]</span> =
-          <span class="op op-ag">AllGather</span>(<span class="shape">W<sub>in</sub>[D<sub>X</sub>, F]</span>)
+          <span class="op op-ag">AllGather</span>(<span class="shape">W<sub>in</sub>[D<sub>DP</sub>, F]</span>)
           <span class="cmt">(can be done ahead of time)</span></li>
-        <li><span class="shape">dIn[B<sub>X</sub>, D]</span> =
-          <span class="shape">dTmp[B<sub>X</sub>, F]</span> ·<sub>F</sub>
+        <li><span class="shape">dIn[B<sub>DP</sub>, D]</span> =
+          <span class="shape">dTmp[B<sub>DP</sub>, F]</span> ·<sub>F</sub>
           <span class="shape">W<sub>in</sub>[D, F]</span>
           <span class="cmt">(needed for previous layers) (can throw away W<sub>in</sub>[D, F] here)</span></li>
       </ol>
@@ -134,21 +134,21 @@
   only your shard of the optimizer state, update a shard of the parameters,
   then <span class="op op-ag">AllGather</span> the parameters as needed for
   your forward pass.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Try:
-  in the memory meter below, drag <i class="v v-X">X</i> =
-  <span class="t-var" data-var="X" data-min="1" data-max="65536" data-scale="log" data-snap="pow2" data-fmt="int"></span>
+  in the memory meter below, drag <i class="v v-DP">DP</i> =
+  <span class="t-var" data-var="DP" data-min="1" data-max="65536" data-scale="log" data-snap="pow2" data-fmt="int"></span>
   down toward 1 and watch the meter fill up and overflow — at
-  <i class="v v-X">X</i> = 1 you're just pure DP on one chip's memory budget.
-  Every doubling of <i class="v v-X">X</i> halves the parameter and optimizer
+  <i class="v v-DP">DP</i> = 1 you're just pure DP on one chip's memory budget.
+  Every doubling of <i class="v v-DP">DP</i> halves the parameter and optimizer
   stripes.</span></span></p>
 
   <figure class="breakout">
     <div class="widget" data-widget="mem-meter" data-opts='{"scheme":"fsdp"}'></div>
     <figcaption>Per-chip HBM under FSDP: parameters
-    (2<i class="v">P</i>/<i class="v v-X">X</i> =
-    <span class="t-out" data-expr="2*P/X" data-fmt="bytes"></span>) and Adam
-    optimizer state (8<i class="v">P</i>/<i class="v v-X">X</i> =
-    <span class="t-out" data-expr="8*P/X" data-fmt="bytes"></span>) are now
-    divided by <i class="v v-X">X</i>. Compare the pure-DP memory meter in the
+    (2<i class="v">P</i>/<i class="v v-DP">DP</i> =
+    <span class="t-out" data-expr="2*P/DP" data-fmt="bytes"></span>) and Adam
+    optimizer state (8<i class="v">P</i>/<i class="v v-DP">DP</i> =
+    <span class="t-out" data-expr="8*P/DP" data-fmt="bytes"></span>) are now
+    divided by <i class="v v-DP">DP</i>. Compare the pure-DP memory meter in the
     previous section: there the same two stripes sat at their full, unsharded
     size on every chip — 10 bytes per parameter, capping pure DP at about
     <span class="t-out" data-expr="HBM/10" data-fmt="si"></span> parameters per
@@ -166,39 +166,39 @@
   the backward pass:<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> The
   chapter writes these equations for one mesh axis. The live line beneath them
   (and every meter on this page) spreads the collective over
-  <i class="v v-M">M<sub>X</sub></i> =
-  <span class="t-var" data-var="MX" data-min="1" data-max="3" data-scale="lin" data-snap="int" data-fmt="int"></span>
-  mesh axes — the M<sub>X</sub> the chapter's takeaway below refers to — so
-  T<sub>comms</sub> is divided by M<sub>X</sub>.</span></span></p>
+  <i class="v v-M">M<sub>DP</sub></i> =
+  <span class="t-var" data-var="MDP" data-min="1" data-max="3" data-scale="lin" data-snap="int" data-fmt="int"></span>
+  mesh axes — the M<sub>DP</sub> the chapter's takeaway below refers to — so
+  T<sub>comms</sub> is divided by M<sub>DP</sub>.</span></span></p>
 
   <div class="eq">
     T<sub>math</sub> =
-    <span class="frac"><span>2 · 2 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span><i class="v v-X">X</i> · <i class="v v-C">C</i></span></span>
+    <span class="frac"><span>2 · 2 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span><i class="v v-DP">DP</i> · <i class="v v-C">C</i></span></span>
     &nbsp;&nbsp;&nbsp;
     T<sub>comms</sub> =
     <span class="frac"><span>2 · 2 · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span><i class="v v-W">W<sub>ici</sub></i></span></span>
   </div>
   <div class="eq">
     T ≈ max<span class="eq-i">(
-    <span class="frac"><span>4 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span><i class="v v-X">X</i> · <i class="v v-C">C</i></span></span>,
+    <span class="frac"><span>4 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span><i class="v v-DP">DP</i> · <i class="v v-C">C</i></span></span>,
     <span class="frac"><span>4 · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span><i class="v v-W">W<sub>ici</sub></i></span></span>
     )</span>
     = 4 · <i class="v v-D">D</i> · <i class="v v-F">F</i> · max<span class="eq-i">(
-    <span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-X">X</i> · <i class="v v-C">C</i></span></span>,
+    <span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-DP">DP</i> · <i class="v v-C">C</i></span></span>,
     <span class="frac"><span>1</span><span><i class="v v-W">W<sub>ici</sub></i></span></span>
     )</span>
   </div>
-  <div class="eq-live">right now, per layer, over M<sub>X</sub> =
-    <span class="t-out" data-expr="MX" data-fmt="int"></span> mesh axes<span class="t-show inline" data-expr="E>1"> (MoE: FLOPs carry k·F, weight comms E·F)</span>:
-    T<sub>math</sub> = <span class="t-out" data-expr="4*B*D*k*F/(X*C)" data-fmt="time"></span> vs
-    T<sub>comms</sub> = <span class="t-out" data-expr="4*D*E*F/(Wici*MX)" data-fmt="time"></span> →
-    <span class="t-if" data-expr="B/X > (E/k)*alpha/MX" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
+  <div class="eq-live">right now, per layer, over M<sub>DP</sub> =
+    <span class="t-out" data-expr="MDP" data-fmt="int"></span> mesh axes<span class="t-show inline" data-expr="E>1"> (MoE: FLOPs carry k·F, weight comms E·F)</span>:
+    T<sub>math</sub> = <span class="t-out" data-expr="4*B*D*k*F/(DP*C)" data-fmt="time"></span> vs
+    T<sub>comms</sub> = <span class="t-out" data-expr="4*D*E*F/(Wici*MDP)" data-fmt="time"></span> →
+    <span class="t-if" data-expr="B/DP > (E/k)*alpha/MDP" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
   </div>
 
   <p>Therefore, as with pure data-parallelism, we are compute bound when
-  <span class="eq-i"><i class="v v-B">B</i> / <i class="v v-X">X</i> &gt;
+  <span class="eq-i"><i class="v v-B">B</i> / <i class="v v-DP">DP</i> &gt;
   <i class="v v-C">C</i> / <i class="v v-W">W<sub>ici</sub></i></span>, i.e.
-  when the per-device batch size <i class="v v-B">B</i>/<i class="v v-X">X</i>
+  when the per-device batch size <i class="v v-B">B</i>/<i class="v v-DP">DP</i>
   exceeds the "ICI operational intensity"
   <i class="v v-C">C</i>/<i class="v v-W">W<sub>ici</sub></i>
   (<span class="t-out" data-expr="C" data-fmt="e"></span> /
@@ -215,11 +215,11 @@
   DP's backward pass, FSDP's forward pass has half the traffic on the network
   clock <em>and</em> half the FLOPs on the compute clock, so both bars shrink
   together and the ridge doesn't move. The comms fit under the compute exactly
-  when the per-chip batch <i class="v v-B">B</i>/<i class="v v-X">X</i> =
-  <span class="t-out" data-expr="B/X" data-fmt="int"></span> clears the ridge
-  at <span class="t-out" data-expr="(E/k)*alpha/MX" data-fmt="int"></span> tokens
+  when the per-chip batch <i class="v v-B">B</i>/<i class="v v-DP">DP</i> =
+  <span class="t-out" data-expr="B/DP" data-fmt="int"></span> clears the ridge
+  at <span class="t-out" data-expr="(E/k)*alpha/MDP" data-fmt="int"></span> tokens
   (α = <span class="t-out" data-expr="alpha" data-fmt="int"></span> per mesh
-  axis, over M<sub>X</sub> axes, ×E/k with a MoE loaded).</span></span></p>
+  axis, over M<sub>DP</sub> axes, ×E/k with a MoE loaded).</span></span></p>
 
   <figure class="breakout">
     <div class="widget" data-widget="bound-meter" data-opts='{"scheme":"fsdp"}'></div>
@@ -231,7 +231,7 @@
   <div class="takeaway"><strong>Takeaway:</strong> Both FSDP and pure Data
   Parallelism become bandwidth bound on TPUv5 when the batch size per device
   is less than <span class="t-out" data-expr="alpha" data-fmt="int"></span> /
-  <i class="v v-M">M<sub>X</sub></i>, where <i class="v v-M">M<sub>X</sub></i>
+  <i class="v v-M">M<sub>DP</sub></i>, where <i class="v v-M">M<sub>DP</sub></i>
   is the number of mesh axes.</div>
 
   <p>For example, DeepSeek-V2 (one of the only recent strong models to release
@@ -246,24 +246,24 @@
   the mini-calculator that follows is an addition of this edition. With
   <i class="v v-B">B</i> =
   <span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span>
-  tokens, FSDP scales to <i class="v v-X">X<sub>max</sub></i> chips before hitting the bandwidth
+  tokens, FSDP scales to <i class="v v-DP">DP<sub>max</sub></i> chips before hitting the bandwidth
   limit.</span></span></p>
 
   <div class="eq">
-    <i class="v v-X">X<sub>max</sub></i> =
-    <span class="frac"><span><i class="v v-B">B</i> · <i class="v v-M">M<sub>X</sub></i><span class="t-show inline" data-expr="E>1"> · <i class="v">k</i></span></span><span>α<span class="t-show inline" data-expr="E>1"> · <i class="v">E</i></span></span></span>
-    = <span class="t-out" data-expr="B*MX*k/(alpha*E)" data-fmt="chips"></span> chips
+    <i class="v v-DP">DP<sub>max</sub></i> =
+    <span class="frac"><span><i class="v v-B">B</i> · <i class="v v-M">M<sub>DP</sub></i><span class="t-show inline" data-expr="E>1"> · <i class="v">k</i></span></span><span>α<span class="t-show inline" data-expr="E>1"> · <i class="v">E</i></span></span></span>
+    = <span class="t-out" data-expr="B*MDP*k/(alpha*E)" data-fmt="chips"></span> chips
     <span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> This
     equation is not in the chapter — it just solves the chapter's bound
-    B/<i class="v v-X">X</i> &gt; α/M<sub>X</sub> (with a MoE loaded, the exact form
-    B/<i class="v v-X">X</i> &gt; (E/k)·α/M<sub>X</sub>) for <i class="v v-X">X</i>, so you can scrub
+    B/<i class="v v-DP">DP</i> &gt; α/M<sub>DP</sub> (with a MoE loaded, the exact form
+    B/<i class="v v-DP">DP</i> &gt; (E/k)·α/M<sub>DP</sub>) for <i class="v v-DP">DP</i>, so you can scrub
     <i class="v v-B">B</i> and read off the largest compute-bound chip
     count.</span></span>
   </div>
 
   <div class="preset-row"><span class="preset-label">Try:</span>
-    <button class="t-preset" data-set='{"B":4e7,"MX":3}'>DeepSeek-V2: B = 40M, all 3 axes</button>
-    <button class="t-preset" data-set='{"B":2e6,"MX":2}'>back to page defaults</button>
+    <button class="t-preset" data-set='{"B":4e7,"MDP":3}'>DeepSeek-V2: B = 40M, all 3 axes</button>
+    <button class="t-preset" data-set='{"B":2e6,"MDP":2}'>back to page defaults</button>
   </div>
 
   <p>For LLaMA-3 70B, which was trained for approximately
@@ -301,7 +301,7 @@
   </div>
 
   <div class="preset-row"><span class="preset-label">Try:</span>
-    <button class="t-preset" data-set='{"B":16000000,"MX":3,"MFU":0.5}'>chapter's LLaMA-3 recipe: B = 16M, 3 axes, MFU 50%</button>
+    <button class="t-preset" data-set='{"B":16000000,"MDP":3,"MFU":0.5}'>chapter's LLaMA-3 recipe: B = 16M, 3 axes, MFU 50%</button>
   </div>
 
   <div class="note"><strong>Note on critical batch size</strong>: somewhat
@@ -311,7 +311,7 @@
   for yourself: drag <i class="v v-B">B</i> =
   <span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span>
   down and watch the verdict above flip to
-  <span class="t-if" data-expr="B/X > (E/k)*alpha/MX" data-then="…well, it hasn't yet" data-else="communication-bound"></span>.
+  <span class="t-if" data-expr="B/DP > (E/k)*alpha/MDP" data-then="…well, it hasn't yet" data-else="communication-bound"></span>.
   The hunt described at the end of this note is where the rest of this chapter
   goes.</span></span> Data parallelism and FSDP let us scale to arbitrarily
   many chips so long as we can keep increasing our batch size! However, in

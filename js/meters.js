@@ -6,6 +6,7 @@
    ============================================================ */
 (function () {
   "use strict";
+  const axLabel = (a) => ({ X: "DP", Y: "TP", MX: "M_DP", MY: "M_TP", Z: "PP", MDP: "M_DP", MTP: "M_TP" }[a] || a);
   const SER = Core.SERIES, CHR = Core.CHROME;
   const SVGNS = "http://www.w3.org/2000/svg";
   const INKBAR = "#3a3a38"; // near-ink for the T_math reference bar
@@ -40,50 +41,49 @@
      ("exposed"), same visual language as overlap-timeline.
      ============================================================ */
   // label / tmFormula / tcFormula are functions: they name mesh axes, so they
-  // must be rebuilt with Core.axisName at render time (nota toggle).
   const BOUND_SCHEMES = {
     // F = per-expert width (chapter-12 convention): math terms carry k·F,
     // weight-moving comms carry E·F. Dense models are the E = k = 1 case.
     dp: {
       label: () => "data parallelism (backward pass)",
       color: SER.s1,
-      tm: (S) => (8 * S.B * S.D * S.k * S.F) / (S.X * S.C),
-      tc: (S) => (8 * S.D * S.E * S.F) / (S.Wici * S.MX),
-      tmFormula: () => "T_math = 8·B·D·k·F / (" + Core.axisName("X") + "·C)",
-      tcFormula: () => "T_comms = 8·D·E·F / (Wici·" + Core.axisName("MX") + ")",
+      tm: (S) => (8 * S.B * S.D * S.k * S.F) / (S.DP * S.C),
+      tc: (S) => (8 * S.D * S.E * S.F) / (S.Wici * S.MDP),
+      tmFormula: () => "T_math = 8·B·D·k·F / (" + axLabel("X") + "·C)",
+      tcFormula: () => "T_comms = 8·D·E·F / (Wici·" + axLabel("MX") + ")",
     },
     fsdp: {
       label: () => "FSDP (forward pass)",
       color: SER.s1,
-      tm: (S) => (4 * S.B * S.D * S.k * S.F) / (S.X * S.C),
-      tc: (S) => (4 * S.D * S.E * S.F) / (S.Wici * S.MX),
-      tmFormula: () => "T_math = 4·B·D·k·F / (" + Core.axisName("X") + "·C)",
-      tcFormula: () => "T_comms = 4·D·E·F / (Wici·" + Core.axisName("MX") + ")",
+      tm: (S) => (4 * S.B * S.D * S.k * S.F) / (S.DP * S.C),
+      tc: (S) => (4 * S.D * S.E * S.F) / (S.Wici * S.MDP),
+      tmFormula: () => "T_math = 4·B·D·k·F / (" + axLabel("X") + "·C)",
+      tcFormula: () => "T_comms = 4·D·E·F / (Wici·" + axLabel("MX") + ")",
     },
     tp: {
       label: () => "tensor parallelism (forward pass)",
       color: SER.s2,
-      tm: (S) => (4 * S.B * S.D * S.k * S.F) / (S.Y * S.C),
-      tc: (S) => (4 * S.B * S.D) / (S.Wici * S.MY),
-      tmFormula: () => "T_math = 4·B·D·k·F / (" + Core.axisName("Y") + "·C)",
-      tcFormula: () => "T_comms = 4·B·D / (Wici·" + Core.axisName("MY") + ")",
+      tm: (S) => (4 * S.B * S.D * S.k * S.F) / (S.TP * S.C),
+      tc: (S) => (4 * S.B * S.D) / (S.Wici * S.MTP),
+      tmFormula: () => "T_math = 4·B·D·k·F / (" + axLabel("Y") + "·C)",
+      tcFormula: () => "T_comms = 4·B·D / (Wici·" + axLabel("MY") + ")",
     },
     mixed: {
-      label: () => "FSDP + TP (forward pass, N = " + Core.axisName("X") + "·" + Core.axisName("Y") + ")",
+      label: () => "FSDP + TP (forward pass, N = " + axLabel("X") + "·" + axLabel("Y") + ")",
       color: SER.s3,
-      tm: (S) => (4 * S.B * S.D * S.k * S.F) / (S.X * S.Y * S.C),
+      tm: (S) => (4 * S.B * S.D * S.k * S.F) / (S.DP * S.TP * S.C),
       tc: (S) => Math.max(
-        (4 * S.D * S.E * S.F) / (S.Y * S.Wici * S.MX),
-        (4 * S.B * S.D) / (S.X * S.Wici * S.MY)
+        (4 * S.D * S.E * S.F) / (S.TP * S.Wici * S.MDP),
+        (4 * S.B * S.D) / (S.DP * S.Wici * S.MTP)
       ),
       tmFormula: () => "T_math = 4·B·D·k·F / (N·C)",
-      tcFormula: () => "T_comms = max(4·D·E·F / (" + Core.axisName("Y") + "·Wici·" + Core.axisName("MX") +
-        "), 4·B·D / (" + Core.axisName("X") + "·Wici·" + Core.axisName("MY") + "))",
+      tcFormula: () => "T_comms = max(4·D·E·F / (" + axLabel("Y") + "·Wici·" + axLabel("MX") +
+        "), 4·B·D / (" + axLabel("X") + "·Wici·" + axLabel("MY") + "))",
     },
     dcn: {
       label: () => "cross-pod data parallelism over DCN (backward pass)",
       color: SER.s1,
-      tm: (S) => (8 * S.B * S.D * S.k * S.F) / (S.X * S.Y * S.C),
+      tm: (S) => (8 * S.B * S.D * S.k * S.F) / (S.DP * S.TP * S.C),
       tc: (S) => (8 * S.D * S.E * S.F) / (S.podSize * S.Wdcn),
       tmFormula: () => "T_math = 8·B·D·k·F / (N·C)",
       tcFormula: () => "T_comms = 8·D·E·F / (podSize·Wdcn)",
@@ -211,25 +211,24 @@
      sharding. Vertical capacity tick at HBM; overflow past the
      tick is hatched red with a "doesn't fit" flag.
      ============================================================ */
-  // noteP / noteA are functions: they name mesh axes (Core.axisName, nota toggle).
   const MEM_SCHEMES = {
     dp: {
       label: "pure data parallelism",
-      divP: () => 1, divA: (S) => S.X,
+      divP: () => 1, divA: (S) => S.DP,
       noteP: () => "replicated on every chip (÷1)",
-      noteA: () => "batch sharded over " + Core.axisName("X"),
+      noteA: () => "batch sharded over " + axLabel("X"),
     },
     fsdp: {
       label: "FSDP",
-      divP: (S) => S.X, divA: (S) => S.X,
-      noteP: () => "sharded over " + Core.axisName("X"),
-      noteA: () => "batch sharded over " + Core.axisName("X"),
+      divP: (S) => S.DP, divA: (S) => S.DP,
+      noteP: () => "sharded over " + axLabel("X"),
+      noteA: () => "batch sharded over " + axLabel("X"),
     },
     mixed: {
       label: "FSDP + TP",
-      divP: (S) => S.X * S.Y, divA: (S) => S.X * S.Y,
-      noteP: () => "sharded over N = " + Core.axisName("X") + "·" + Core.axisName("Y"),
-      noteA: () => "sharded over " + Core.axisName("X") + "·" + Core.axisName("Y"),
+      divP: (S) => S.DP * S.TP, divA: (S) => S.DP * S.TP,
+      noteP: () => "sharded over N = " + axLabel("X") + "·" + axLabel("Y"),
+      noteA: () => "sharded over " + axLabel("X") + "·" + axLabel("Y"),
     },
   };
 

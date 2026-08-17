@@ -12,10 +12,10 @@
 <p><strong>Syntax:</strong></p>
 
 <div class="eq">
-  <span class="shape">In[B<sub>X</sub>, D]</span> ·<sub>D</sub>
+  <span class="shape">In[B<sub>DP</sub>, D]</span> ·<sub>D</sub>
   <span class="shape">W<sub>in</sub>[D, F]</span> ·<sub>F</sub>
   <span class="shape">W<sub>out</sub>[F, D]</span> →
-  <span class="shape">Out[B<sub>X</sub>, D]</span>
+  <span class="shape">Out[B<sub>DP</sub>, D]</span>
 </div>
 
 <p>When your model fits on a single chip with even a tiny batch size (&gt;240
@@ -29,10 +29,10 @@ parameters.</strong><span class="sn adapt"><button class="sn-ref" aria-label="ad
 Everything on this page is live. The batch is currently
 <i class="v v-B">B</i> =
 <span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span>,
-split over <i class="v v-X">X</i> =
-<span class="t-var" data-var="X" data-min="1" data-max="65536" data-scale="log" data-snap="pow2" data-fmt="int"></span>
+split over <i class="v v-DP">DP</i> =
+<span class="t-var" data-var="DP" data-min="1" data-max="65536" data-scale="log" data-snap="pow2" data-fmt="int"></span>
 chips, so each copy of the model sees
-<span class="t-out" data-expr="B/X" data-fmt="int"></span> tokens. Drag either
+<span class="t-out" data-expr="B/DP" data-fmt="int"></span> tokens. Drag either
 number — every equation, meter, and verdict below recomputes.</span></span></p>
 
 <figure class="breakout">
@@ -41,7 +41,7 @@ number — every equation, meter, and verdict below recomputes.</span></span></p
   (left) are fully sharded along the batch dimension and our weights are fully
   replicated, so each TPU has an identical copy of the weights. This means the
   total memory of our weights is increased by a factor of
-  <i class="v v-X">X</i>, but no communication is required on the forward-pass.
+  <i class="v v-DP">DP</i>, but no communication is required on the forward-pass.
   Hover a chip to see exactly which slice of the batch it owns.</figcaption>
 </figure>
 
@@ -49,31 +49,31 @@ number — every equation, meter, and verdict below recomputes.</span></span></p
   <summary>Here's the full algorithm for the forward and backwards pass. We abuse notation to write dL/dOut as dOut, purely for compactness.</summary>
   <div class="algorithm">
     <p><strong>Pure Data Parallelism Algorithm:</strong></p>
-    <p><strong>Forward pass:</strong> need to compute <span class="shape">Loss[B<sub>X</sub>]</span></p>
+    <p><strong>Forward pass:</strong> need to compute <span class="shape">Loss[B<sub>DP</sub>]</span></p>
     <ol>
-      <li><span class="shape">Tmp[B<sub>X</sub>, F]</span> = <span class="shape">In[B<sub>X</sub>, D]</span> ·<sub>D</sub> <span class="shape">W<sub>in</sub>[D, F]</span></li>
-      <li><span class="shape">Out[B<sub>X</sub>, D]</span> = <span class="shape">Tmp[B<sub>X</sub>, F]</span> ·<sub>F</sub> <span class="shape">W<sub>out</sub>[F, D]</span></li>
-      <li><span class="shape">Loss[B<sub>X</sub>]</span> = …</li>
+      <li><span class="shape">Tmp[B<sub>DP</sub>, F]</span> = <span class="shape">In[B<sub>DP</sub>, D]</span> ·<sub>D</sub> <span class="shape">W<sub>in</sub>[D, F]</span></li>
+      <li><span class="shape">Out[B<sub>DP</sub>, D]</span> = <span class="shape">Tmp[B<sub>DP</sub>, F]</span> ·<sub>F</sub> <span class="shape">W<sub>out</sub>[F, D]</span></li>
+      <li><span class="shape">Loss[B<sub>DP</sub>]</span> = …</li>
     </ol>
     <p><strong>Backward pass:</strong> need to compute
     <span class="shape">dW<sub>out</sub>[F, D]</span>,
     <span class="shape">dW<sub>in</sub>[D, F]</span><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
-    The <span class="shape">{U<sub>X</sub>}</span> annotation below marks a
-    result that is <em>unreduced</em> over the <i class="v v-X">X</i> axis: each chip holds a
+    The <span class="shape">{U<sub>DP</sub>}</span> annotation below marks a
+    result that is <em>unreduced</em> over the <i class="v v-DP">DP</i> axis: each chip holds a
     partial sum from its own slice of the batch.</span></span></p>
     <ol>
-      <li><span class="shape">dOut[B<sub>X</sub>, D]</span> = …</li>
-      <li><span class="shape">dW<sub>out</sub>[F, D] {U<sub>X</sub>}</span> = <span class="shape">Tmp[B<sub>X</sub>, F]</span> ·<sub>B</sub> <span class="shape">dOut[B<sub>X</sub>, D]</span></li>
-      <li><span class="shape">dW<sub>out</sub>[F, D]</span> = <span class="op op-ar">AllReduce</span>(<span class="shape">dW<sub>out</sub>[F, D] {U<sub>X</sub>}</span>) <em>(not on critical path, can be done async)</em></li>
-      <li><span class="shape">dTmp[B<sub>X</sub>, F]</span> = <span class="shape">dOut[B<sub>X</sub>, D]</span> ·<sub>D</sub> <span class="shape">W<sub>out</sub>[F, D]</span></li>
-      <li><span class="shape">dW<sub>in</sub>[D, F] {U<sub>X</sub>}</span> = <span class="shape">In[B<sub>X</sub>, D]</span> ·<sub>B</sub> <span class="shape">dTmp[B<sub>X</sub>, F]</span></li>
-      <li><span class="shape">dW<sub>in</sub>[D, F]</span> = <span class="op op-ar">AllReduce</span>(<span class="shape">dW<sub>in</sub>[D, F] {U<sub>X</sub>}</span>) <em>(not on critical path, can be done async)</em></li>
-      <li><span class="shape">dIn[B<sub>X</sub>, D]</span> = <span class="shape">dTmp[B<sub>X</sub>, F]</span> ·<sub>F</sub> <span class="shape">W<sub>in</sub>[D, F]</span> <em>(needed for previous layers)</em></li>
+      <li><span class="shape">dOut[B<sub>DP</sub>, D]</span> = …</li>
+      <li><span class="shape">dW<sub>out</sub>[F, D] {U<sub>DP</sub>}</span> = <span class="shape">Tmp[B<sub>DP</sub>, F]</span> ·<sub>B</sub> <span class="shape">dOut[B<sub>DP</sub>, D]</span></li>
+      <li><span class="shape">dW<sub>out</sub>[F, D]</span> = <span class="op op-ar">AllReduce</span>(<span class="shape">dW<sub>out</sub>[F, D] {U<sub>DP</sub>}</span>) <em>(not on critical path, can be done async)</em></li>
+      <li><span class="shape">dTmp[B<sub>DP</sub>, F]</span> = <span class="shape">dOut[B<sub>DP</sub>, D]</span> ·<sub>D</sub> <span class="shape">W<sub>out</sub>[F, D]</span></li>
+      <li><span class="shape">dW<sub>in</sub>[D, F] {U<sub>DP</sub>}</span> = <span class="shape">In[B<sub>DP</sub>, D]</span> ·<sub>B</sub> <span class="shape">dTmp[B<sub>DP</sub>, F]</span></li>
+      <li><span class="shape">dW<sub>in</sub>[D, F]</span> = <span class="op op-ar">AllReduce</span>(<span class="shape">dW<sub>in</sub>[D, F] {U<sub>DP</sub>}</span>) <em>(not on critical path, can be done async)</em></li>
+      <li><span class="shape">dIn[B<sub>DP</sub>, D]</span> = <span class="shape">dTmp[B<sub>DP</sub>, F]</span> ·<sub>F</sub> <span class="shape">W<sub>in</sub>[D, F]</span> <em>(needed for previous layers)</em></li>
     </ol>
     <p>We ignore the details of the loss function and abbreviate
     <span class="eq-i">Tmp = W<sub>in</sub> · In</span>. Note that, although our
     final loss is the average
-    <span class="op op-ar">AllReduce</span>(<span class="shape">Loss[B<sub>X</sub>]</span>),
+    <span class="op op-ar">AllReduce</span>(<span class="shape">Loss[B<sub>DP</sub>]</span>),
     we only need to compute the AllReduce on the backward pass when averaging
     weight gradients.</p>
   </div>
@@ -119,7 +119,7 @@ of HBM and pure data parallelism this is about
   <div class="widget" data-widget="mem-meter" data-opts='{"scheme":"dp"}'></div>
   <figcaption>Per-chip HBM under pure data parallelism. Parameters and optimizer
   state are replicated (they don't shrink as you add chips); only the
-  activations divide by <i class="v v-X">X</i>. Drag <i class="v v-D">D</i>,
+  activations divide by <i class="v v-DP">DP</i>. Drag <i class="v v-D">D</i>,
   <i class="v v-F">F</i>, or <i class="v v-L">L</i> anywhere on the page and
   watch the fixed 10-bytes-per-parameter slab crash through the HBM
   ceiling.</figcaption>
@@ -150,7 +150,7 @@ enough per-chip batch can always hide.</span></span></p>
 
 <p>As in the table above, let <i class="v v-C">C</i> = per-chip FLOPs,
 <i class="v v-W">W<sub>ici</sub></i> = <strong>bidirectional</strong> network
-bandwidth, and <i class="v v-X">X</i> = number of shards across which the batch
+bandwidth, and <i class="v v-DP">DP</i> = number of shards across which the batch
 is partitioned<span class="sn"><button class="sn-ref" aria-label="sidenote">◦</button><span class="sn-body">We
 assume this partitioning is done over an ICI mesh, so the relevant network
 bandwidth is W<sub>ici</sub>.</span></span>. Let's calculate the time required
@@ -175,41 +175,41 @@ the total time for the AllReduce in a single layer is</p>
   <span class="frac"><span>2 · 2 · 2 · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span><i class="v v-W">W<sub>ici</sub></i></span></span>
 </div>
 <div class="eq-live">right now, spread over
-  <i class="v v-M">M<sub>X</sub></i> =
-  <span class="t-out" data-expr="MX" data-fmt="int"></span> mesh axes (see the
+  <i class="v v-M">M<sub>DP</sub></i> =
+  <span class="t-out" data-expr="MDP" data-fmt="int"></span> mesh axes (see the
   Note on multiple mesh axes below):
   8 · <span class="t-out" data-expr="D" data-fmt="int"></span> ·
   <span class="t-show inline" data-expr="E>1"><span class="t-out" data-expr="E" data-fmt="int"></span> · </span><span class="t-out" data-expr="F" data-fmt="si"></span> /
   (<span class="t-out" data-expr="Wici" data-fmt="bw"></span> ·
-  M<sub>X</sub>) =
-  <span class="t-out" data-expr="8*D*E*F/(Wici*MX)" data-fmt="time"></span> per
+  M<sub>DP</sub>) =
+  <span class="t-out" data-expr="8*D*E*F/(Wici*MDP)" data-fmt="time"></span> per
   layer — and notice: no <i class="v v-B">B</i> anywhere.
 </div>
 
 <figure class="breakout">
-  <div class="widget" data-widget="collective" data-opts='{"op":"allreduce","bytesExpr":"2*D*E*F","axisVar":"MX","label":"AllReduce of one layer&apos;s dW_in"}'></div>
+  <div class="widget" data-widget="collective" data-opts='{"op":"allreduce","bytesExpr":"2*D*E*F","axisVar":"MDP","label":"AllReduce of one layer&apos;s dW_in"}'></div>
   <figcaption>One of the two per-layer gradient reductions:
   <span class="op op-ar">AllReduce</span> of dW<sub>in</sub>, an array of
   <span class="t-out" data-expr="2*D*E*F" data-fmt="bytes"></span><span class="t-show inline" data-expr="E>1"> (all E experts' gradients travel)</span>. Press play to
   watch the ring pass partial sums; the readout is the
-  2 · bytes / (W<sub>ici</sub> · M<sub>X</sub>) cost used in the
+  2 · bytes / (W<sub>ici</sub> · M<sub>DP</sub>) cost used in the
   derivation.</figcaption>
 </figure>
 
 <p><em>Matmul time:</em> Each layer comprises two matmuls in the forward pass,
 or four matmuls in the backwards pass, each of which requires
-<span class="eq-i">2(<i class="v v-B">B</i>/<i class="v v-X">X</i>)<i class="v v-D">D</i><i class="v v-F">F</i></span>
+<span class="eq-i">2(<i class="v v-B">B</i>/<i class="v v-DP">DP</i>)<i class="v v-D">D</i><i class="v v-F">F</i></span>
 FLOPs. Thus, for a single layer in the backward pass, we have</p>
 
 <div class="eq">
   T<sub>math</sub> =
-  <span class="frac"><span>2 · 2 · 2 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span><i class="v v-X">X</i> · <i class="v v-C">C</i></span></span>
+  <span class="frac"><span>2 · 2 · 2 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span><i class="v v-DP">DP</i> · <i class="v v-C">C</i></span></span>
 </div>
 <div class="eq-live">right now:
-  <span class="t-out" data-expr="8*B*D*k*F/(X*C)" data-fmt="time"></span> per
+  <span class="t-out" data-expr="8*B*D*k*F/(DP*C)" data-fmt="time"></span> per
   layer — this one scales with the per-chip batch
-  <i class="v v-B">B</i>/<i class="v v-X">X</i> =
-  <span class="t-out" data-expr="B/X" data-fmt="int"></span> tokens<span class="t-show inline" data-expr="E>1"> (FLOPs carry k·F, the activated width)</span>.
+  <i class="v v-B">B</i>/<i class="v v-DP">DP</i> =
+  <span class="t-out" data-expr="B/DP" data-fmt="int"></span> tokens<span class="t-show inline" data-expr="E>1"> (FLOPs carry k·F, the activated width)</span>.
 </div>
 
 <p>Since we overlap, the total time per layer is the max of these two
@@ -217,13 +217,13 @@ quantities:</p>
 
 <div class="eq">
   T ≈ max<span class="eq-i">(
-  <span class="frac"><span>8 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span><i class="v v-X">X</i> · <i class="v v-C">C</i></span></span>,
+  <span class="frac"><span>8 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span><i class="v v-DP">DP</i> · <i class="v v-C">C</i></span></span>,
   <span class="frac"><span>8 · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span><i class="v v-W">W<sub>ici</sub></i></span></span>
   )</span>
 </div>
 <div class="eq">
   T ≈ 8 · <i class="v v-D">D</i> · <i class="v v-F">F</i> · max<span class="eq-i">(
-  <span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-X">X</i> · <i class="v v-C">C</i></span></span>,
+  <span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-DP">DP</i> · <i class="v v-C">C</i></span></span>,
   <span class="frac"><span>1</span><span><i class="v v-W">W<sub>ici</sub></i></span></span>
   )</span>
 </div>
@@ -233,36 +233,36 @@ quantities:</p>
 when</p>
 
 <div class="eq">
-  <span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-X">X</i></span></span>
+  <span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-DP">DP</i></span></span>
   &gt;
   <span class="frac"><span><i class="v v-C">C</i></span><span><i class="v v-W">W<sub>ici</sub></i></span></span>
 </div>
 <div class="eq-live">right now:
-  <span class="t-out" data-expr="B/X" data-fmt="int"></span> tokens/chip vs a
-  ridge at <span class="t-show inline" data-expr="E>1">(E/k) · </span>C/(W<sub>ici</sub> · M<sub>X</sub>) =
-  <span class="t-out" data-expr="(E/k)*alpha/MX" data-fmt="int"></span> →
-  <span class="t-if" data-expr="B/X &gt; (E/k)*alpha/MX" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
-  (headroom <span class="t-out" data-expr="(B/X)/((E/k)*alpha/MX)" data-fmt="x"></span>)
+  <span class="t-out" data-expr="B/DP" data-fmt="int"></span> tokens/chip vs a
+  ridge at <span class="t-show inline" data-expr="E>1">(E/k) · </span>C/(W<sub>ici</sub> · M<sub>DP</sub>) =
+  <span class="t-out" data-expr="(E/k)*alpha/MDP" data-fmt="int"></span> →
+  <span class="t-if" data-expr="B/DP &gt; (E/k)*alpha/MDP" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
+  (headroom <span class="t-out" data-expr="(B/DP)/((E/k)*alpha/MDP)" data-fmt="x"></span>)
 </div>
 
 <p>The upshot is that, to remain compute-bound with data parallelism, we need
-the per-device batch size <i class="v v-B">B</i>/<i class="v v-X">X</i> to
+the per-device batch size <i class="v v-B">B</i>/<i class="v v-DP">DP</i> to
 exceed the ICI operational intensity,
 <i class="v v-C">C</i>/<i class="v v-W">W<sub>ici</sub></i>. This is ultimately
 a consequence of the fact that the computation time scales with the per-device
 batch size, while the communication time is independent of this quantity (since
 we are transferring model weights). Note the resemblance of the
-<span class="eq-i"><i class="v v-B">B</i>/<i class="v v-X">X</i> &gt; <i class="v v-C">C</i>/<i class="v v-W">W<sub>ici</sub></i></span>
+<span class="eq-i"><i class="v v-B">B</i>/<i class="v v-DP">DP</i> &gt; <i class="v v-C">C</i>/<i class="v v-W">W<sub>ici</sub></i></span>
 condition to the single-device compute-bound rule B &gt; 240; in that case as
 well, the rule came from the fact that computation time scaled with batch size
 while data-transfer size was (in the B ≪ F, D regime) independent of batch
 size.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
-Try: drag <i class="v v-X">X</i> =
-<span class="t-var" data-var="X" data-min="1" data-max="65536" data-scale="log" data-snap="pow2" data-fmt="int"></span>
+Try: drag <i class="v v-DP">DP</i> =
+<span class="t-var" data-var="DP" data-min="1" data-max="65536" data-scale="log" data-snap="pow2" data-fmt="int"></span>
 up and watch the compute bar in the meter below shrink toward the frozen comms
 bar — every doubling of chips halves T<sub>math</sub> and does nothing to
 T<sub>comms</sub>. The verdict flips the moment the per-chip batch dips below
-<span class="t-out" data-expr="(E/k)*alpha/MX" data-fmt="int"></span>.<span class="sn-post"><span class="sn-tag">adaptation</span>
+<span class="t-out" data-expr="(E/k)*alpha/MDP" data-fmt="int"></span>.<span class="sn-post"><span class="sn-tag">adaptation</span>
 With a Mixture-of-Experts model loaded (<i class="v">E</i> &gt; 1 — click e.g.
 DeepSeek-V3 in the intro's frontier-models table), a penalty paragraph from
 Chapter 12 appears just below the meter: the gradients move all
@@ -274,8 +274,8 @@ inflates this per-chip floor by E/k =
   <div class="widget" data-widget="bound-meter" data-opts='{"scheme":"dp"}'></div>
   <figcaption>The two clocks for one data-parallel layer, backward pass, to
   scale. The verdict flips exactly where
-  <i class="v v-B">B</i>/<i class="v v-X">X</i> crosses
-  <i class="v v-C">C</i>/(<i class="v v-W">W<sub>ici</sub></i>·<i class="v v-M">M<sub>X</sub></i>)<span class="t-show inline" data-expr="E>1"> — times E/k with a MoE loaded, as derived just below</span>.</figcaption>
+  <i class="v v-B">B</i>/<i class="v v-DP">DP</i> crosses
+  <i class="v v-C">C</i>/(<i class="v v-W">W<sub>ici</sub></i>·<i class="v v-M">M<sub>DP</sub></i>)<span class="t-show inline" data-expr="E>1"> — times E/k with a MoE loaded, as derived just below</span>.</figcaption>
 </figure>
 
 <div class="t-show" data-expr="E&gt;1">
@@ -290,14 +290,14 @@ inflates this per-chip floor by E/k =
   inflation applies on any fabric with
   <i class="v v-W">W<sub>collective</sub></i> read appropriately (here, over the
   TPU mesh or GPU node alike, the live check reads
-  <i class="v v-W">W<sub>ici</sub></i>·<i class="v v-M">M<sub>X</sub></i>).</span></span></h3>
+  <i class="v v-W">W<sub>ici</sub></i>·<i class="v v-M">M<sub>DP</sub></i>).</span></span></h3>
 
   <p>For a Mixture of Experts (MoE) model, where we have <i class="v">E</i> experts
   and <i class="v">k</i> experts per token, this increases to</p>
 
   <div class="eq">
     T<sub>math</sub> =
-    <span class="frac"><span>2 · 2 · 2 · <i class="v">k</i> · <i class="v v-B">B</i><i class="v v-D">D</i><i class="v v-F">F</i></span><span><i class="v v-X">X</i> · <i class="v v-C">C</i></span></span>
+    <span class="frac"><span>2 · 2 · 2 · <i class="v">k</i> · <i class="v v-B">B</i><i class="v v-D">D</i><i class="v v-F">F</i></span><span><i class="v v-DP">DP</i> · <i class="v v-C">C</i></span></span>
     &nbsp;&nbsp;&nbsp;
     T<sub>comms</sub> =
     <span class="frac"><span>2 · 2 · 2 · <i class="v">E</i> · <i class="v v-D">D</i><i class="v v-F">F</i></span><span><i class="v v-W">W<sub>collective</sub></i><span class="sn-post"><span class="sn-tag">adaptation</span>
@@ -312,7 +312,7 @@ inflates this per-chip floor by E/k =
   <span class="eq-i"><i class="v">E</i>/<i class="v">k</i></span>, i.e.</p>
 
   <div class="eq">
-    <span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-X">X</i></span></span>
+    <span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-DP">DP</i></span></span>
     &gt;
     <span class="frac"><span><i class="v">E</i></span><span><i class="v">k</i></span></span>
     <span class="frac"><span><i class="v v-C">C</i></span><span><i class="v v-W">W<sub>collective</sub></i></span></span>
@@ -320,12 +320,12 @@ inflates this per-chip floor by E/k =
 
   <div class="eq-live">right now: E/k =
     <span class="t-out" data-expr="E/k" data-fmt="x"></span>, so the per-chip floor
-    of <span class="t-out" data-expr="alpha/MX" data-fmt="int"></span> tokens
-    inflates to (E/k) · C/(W<sub>ici</sub>·M<sub>X</sub>) =
-    <span class="t-out" data-expr="(E/k)*alpha/MX" data-fmt="int"></span> — vs the
-    current B/<i class="v v-X">X</i> =
-    <span class="t-out" data-expr="B/X" data-fmt="int"></span> tokens/chip →
-    <span class="t-if" data-expr="B/X &gt; (E/k)*alpha/MX" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
+    of <span class="t-out" data-expr="alpha/MDP" data-fmt="int"></span> tokens
+    inflates to (E/k) · C/(W<sub>ici</sub>·M<sub>DP</sub>) =
+    <span class="t-out" data-expr="(E/k)*alpha/MDP" data-fmt="int"></span> — vs the
+    current B/<i class="v v-DP">DP</i> =
+    <span class="t-out" data-expr="B/DP" data-fmt="int"></span> tokens/chip →
+    <span class="t-if" data-expr="B/DP &gt; (E/k)*alpha/MDP" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
   </div>
 
   <p>For example, the new OpenAI OSS model with <span class="eq-i">k=4</span> and
@@ -334,8 +334,8 @@ inflates this per-chip floor by E/k =
   high number.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
   Kept as the chapter's static example (its 2475 is the H100 cross-node ridge from
   <a href="#gpus">the GPU section</a>). At your current hardware and model, the
-  same computation reads (E/k) · C/(W<sub>ici</sub>·M<sub>X</sub>) =
-  <span class="t-out" data-expr="(E/k)*alpha/MX" data-fmt="int"></span> tokens per
+  same computation reads (E/k) · C/(W<sub>ici</sub>·M<sub>DP</sub>) =
+  <span class="t-out" data-expr="(E/k)*alpha/MDP" data-fmt="int"></span> tokens per
   chip. Expert parallelism — sharding the experts themselves, so gradients stop
   crossing the whole DP axis — is the standard escape; it gets
   <a href="#expert-parallelism">its own section</a> below.</span></span></p>
@@ -362,9 +362,9 @@ tokens per batch per pod (of
 parallelism!</strong></p>
 
 <div class="preset-row"><span class="preset-label">Try:</span>
-  <button class="t-preset" data-set='{"X":8192,"Y":1,"MX":3,"MY":1,"B":7600000}'>8,192 chips (≈ a pod), 3 axes, 7.6M batch (right at the ridge)</button>
-  <button class="t-preset" data-set='{"X":8192,"Y":1,"MX":1,"MY":1,"B":7600000}'>same, but only 1 axis</button>
-  <button class="t-preset" data-set='{"X":512,"Y":8,"MX":2,"MY":1,"B":2000000}'>page defaults</button>
+  <button class="t-preset" data-set='{"DP":8192,"TP":1,"MDP":3,"MTP":1,"B":7600000}'>8,192 chips (≈ a pod), 3 axes, 7.6M batch (right at the ridge)</button>
+  <button class="t-preset" data-set='{"DP":8192,"TP":1,"MDP":1,"MTP":1,"B":7600000}'>same, but only 1 axis</button>
+  <button class="t-preset" data-set='{"DP":512,"TP":8,"MDP":2,"MTP":1,"B":2000000}'>page defaults</button>
 </div>
 
 <div class="note"><strong>Note [context parallelism]:</strong> Throughout this
@@ -386,20 +386,20 @@ batch or sequence parallelism.</div>
 quickly note how multiple axes affects the available bandwidth. When we use
 multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   <ul>
-    <li><strong>Definition:</strong> <i class="v v-M">M<sub>X</sub></i>
-    (<i class="v v-M">M<sub>Y</sub></i>, M<sub>Z</sub>, etc.) is the number of
+    <li><strong>Definition:</strong> <i class="v v-M">M<sub>DP</sub></i>
+    (<i class="v v-M">M<sub>TP</sub></i>, M<sub>Z</sub>, etc.) is the number of
     hardware mesh axes that a given parallelism strategy spans.</li>
     <li><strong>Effect (bandwidth-bound):</strong> Using M axes provides
     (≈ M times) aggregate link bandwidth, so collective time scales
-    ∝ 1/M<sub>X</sub>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+    ∝ 1/M<sub>DP</sub>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
     This is why the live lines above divide T<sub>comms</sub> by
-    M<sub>X</sub>. Right now <i class="v v-M">M<sub>X</sub></i> =
-    <span class="t-var" data-var="MX" data-min="1" data-max="3" data-scale="lin" data-snap="int" data-fmt="int"></span>,
-    so the ridge sits at C/(W<sub>ici</sub>·M<sub>X</sub>) =
-    <span class="t-out" data-expr="alpha/MX" data-fmt="int"></span> tokens per
+    M<sub>DP</sub>. Right now <i class="v v-M">M<sub>DP</sub></i> =
+    <span class="t-var" data-var="MDP" data-min="1" data-max="3" data-scale="lin" data-snap="int" data-fmt="int"></span>,
+    so the ridge sits at C/(W<sub>ici</sub>·M<sub>DP</sub>) =
+    <span class="t-out" data-expr="alpha/MDP" data-fmt="int"></span> tokens per
     chip rather than
     <span class="t-out" data-expr="alpha" data-fmt="int"></span>. Try: on the
-    first preset above, scrub M<sub>X</sub> between 1 and 3 and watch the
+    first preset above, scrub M<sub>DP</sub> between 1 and 3 and watch the
     verdict swing from communication-bound to compute-bound — same chips, same
     batch, just more wires carrying the same
     AllReduce.</span></span><span class="t-show inline" data-expr="gpu"><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>

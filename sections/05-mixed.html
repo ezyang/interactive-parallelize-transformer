@@ -11,18 +11,18 @@
 
   <p><strong>Syntax:</strong></p>
   <div class="eq">
-    <span class="shape">In[B<sub>X</sub>, D<sub>Y</sub>]</span> ·<sub>D</sub>
-    <span class="shape">W<sub>in</sub>[D<sub>X</sub>, F<sub>Y</sub>]</span> ·<sub>F</sub>
-    <span class="shape">W<sub>out</sub>[F<sub>Y</sub>, D<sub>X</sub>]</span> →
-    <span class="shape">Out[B<sub>X</sub>, D<sub>Y</sub>]</span>
+    <span class="shape">In[B<sub>DP</sub>, D<sub>TP</sub>]</span> ·<sub>D</sub>
+    <span class="shape">W<sub>in</sub>[D<sub>DP</sub>, F<sub>TP</sub>]</span> ·<sub>F</sub>
+    <span class="shape">W<sub>out</sub>[F<sub>TP</sub>, D<sub>DP</sub>]</span> →
+    <span class="shape">Out[B<sub>DP</sub>, D<sub>TP</sub>]</span>
   </div>
 
   <p>The nice thing about FSDP and tensor parallelism is that they can be
   combined. By sharding <strong>W<sub>in</sub></strong> and
   <strong>W<sub>out</sub></strong> along both axes we both save memory and
-  compute. Because we shard B along <i class="v v-X">X</i>, we reduce the size
+  compute. Because we shard B along <i class="v v-DP">DP</i>, we reduce the size
   of the model-parallel AllGathers, and because we shard
-  <i class="v v-F">F</i> along <i class="v v-Y">Y</i>, we reduce the
+  <i class="v v-F">F</i> along <i class="v v-TP">TP</i>, we reduce the
   communication overhead of FSDP. This means a combination of the two can get
   us to an even lower effective batch size than we saw above.</p>
 
@@ -32,8 +32,8 @@
     other cases, there is no duplication of model parameters: each of the
     <i class="v v-N">N</i> = <span class="t-out" data-expr="N" data-fmt="int"></span>
     chips holds a distinct
-    <span class="shape">[D/<i class="v v-X">X</i>, F/<i class="v v-Y">Y</i>]</span> =
-    <span class="shape">[<span class="t-out" data-expr="D/X" data-fmt="int"></span>, <span class="t-out" data-expr="F/Y" data-fmt="int"></span>]</span>
+    <span class="shape">[D/<i class="v v-DP">DP</i>, F/<i class="v v-TP">TP</i>]</span> =
+    <span class="shape">[<span class="t-out" data-expr="D/DP" data-fmt="int"></span>, <span class="t-out" data-expr="F/TP" data-fmt="int"></span>]</span>
     tile of W<sub>in</sub>, and the activations are sharded along both of their
     axes too. Hover a chip to see which shards it owns.</figcaption>
   </figure>
@@ -47,38 +47,38 @@
       <p><strong>Forward pass:</strong> need to compute
       Loss[B]<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
       Count what actually sits on the critical path: on the
-      <i class="v v-Y">Y</i> axis, one <span class="op op-ag">AllGather</span>
+      <i class="v v-TP">TP</i> axis, one <span class="op op-ag">AllGather</span>
       in (step 1) and one <span class="op op-rs">ReduceScatter</span> out
       (step 6) of activation bytes; the weight gathers on the
-      <i class="v v-X">X</i> axis (steps 2 and 4) can be prefetched. Those two
-      <i class="v v-Y">Y</i>-axis activation hops and two <i class="v v-X">X</i>-axis weight hops are exactly the
+      <i class="v v-DP">DP</i> axis (steps 2 and 4) can be prefetched. Those two
+      <i class="v v-TP">TP</i>-axis activation hops and two <i class="v v-DP">DP</i>-axis weight hops are exactly the
       2 · 2 factors in T<sub>TP comms</sub> and T<sub>FSDP comms</sub>
       below.</span></span></p>
       <ol>
-        <li><span class="shape">In[B<sub>X</sub>, D]</span> = <span class="op op-ag">AllGather</span><sub>Y</sub>(<span class="shape">In[B<sub>X</sub>, D<sub>Y</sub>]</span>) <em>(on critical path)</em></li>
-        <li><span class="shape">W<sub>in</sub>[D, F<sub>Y</sub>]</span> = <span class="op op-ag">AllGather</span><sub>X</sub>(<span class="shape">W<sub>in</sub>[D<sub>X</sub>, F<sub>Y</sub>]</span>) <em>(can be done ahead of time)</em></li>
-        <li><span class="shape">Tmp[B<sub>X</sub>, F<sub>Y</sub>]</span> = <span class="shape">In[B<sub>X</sub>, D]</span> ·<sub>D</sub> <span class="shape">W<sub>in</sub>[D, F<sub>Y</sub>]</span></li>
-        <li><span class="shape">W<sub>out</sub>[F<sub>Y</sub>, D]</span> = <span class="op op-ag">AllGather</span><sub>X</sub>(<span class="shape">W<sub>out</sub>[F<sub>Y</sub>, D<sub>X</sub>]</span>) <em>(can be done ahead of time)</em></li>
-        <li><span class="shape">Out[B<sub>X</sub>, D]</span> {U<sub>Y</sub>} = <span class="shape">Tmp[B<sub>X</sub>, F<sub>Y</sub>]</span> ·<sub>F</sub> <span class="shape">W<sub>out</sub>[F<sub>Y</sub>, D]</span></li>
-        <li><span class="shape">Out[B<sub>X</sub>, D<sub>Y</sub>]</span> = <span class="op op-rs">ReduceScatter</span><sub>Y</sub>(<span class="shape">Out[B<sub>X</sub>, D]</span> {U<sub>Y</sub>}) <em>(on critical path)</em></li>
-        <li><span class="shape">Loss[B<sub>X</sub>]</span> = …</li>
+        <li><span class="shape">In[B<sub>DP</sub>, D]</span> = <span class="op op-ag">AllGather</span><sub>TP</sub>(<span class="shape">In[B<sub>DP</sub>, D<sub>TP</sub>]</span>) <em>(on critical path)</em></li>
+        <li><span class="shape">W<sub>in</sub>[D, F<sub>TP</sub>]</span> = <span class="op op-ag">AllGather</span><sub>DP</sub>(<span class="shape">W<sub>in</sub>[D<sub>DP</sub>, F<sub>TP</sub>]</span>) <em>(can be done ahead of time)</em></li>
+        <li><span class="shape">Tmp[B<sub>DP</sub>, F<sub>TP</sub>]</span> = <span class="shape">In[B<sub>DP</sub>, D]</span> ·<sub>D</sub> <span class="shape">W<sub>in</sub>[D, F<sub>TP</sub>]</span></li>
+        <li><span class="shape">W<sub>out</sub>[F<sub>TP</sub>, D]</span> = <span class="op op-ag">AllGather</span><sub>DP</sub>(<span class="shape">W<sub>out</sub>[F<sub>TP</sub>, D<sub>DP</sub>]</span>) <em>(can be done ahead of time)</em></li>
+        <li><span class="shape">Out[B<sub>DP</sub>, D]</span> {U<sub>TP</sub>} = <span class="shape">Tmp[B<sub>DP</sub>, F<sub>TP</sub>]</span> ·<sub>F</sub> <span class="shape">W<sub>out</sub>[F<sub>TP</sub>, D]</span></li>
+        <li><span class="shape">Out[B<sub>DP</sub>, D<sub>TP</sub>]</span> = <span class="op op-rs">ReduceScatter</span><sub>TP</sub>(<span class="shape">Out[B<sub>DP</sub>, D]</span> {U<sub>TP</sub>}) <em>(on critical path)</em></li>
+        <li><span class="shape">Loss[B<sub>DP</sub>]</span> = …</li>
       </ol>
       <p><strong>Backward pass:</strong> need to compute
-      <span class="shape">dW<sub>out</sub>[F<sub>Y</sub>, D<sub>X</sub>]</span>,
-      <span class="shape">dW<sub>in</sub>[D<sub>X</sub>, F<sub>Y</sub>]</span></p>
+      <span class="shape">dW<sub>out</sub>[F<sub>TP</sub>, D<sub>DP</sub>]</span>,
+      <span class="shape">dW<sub>in</sub>[D<sub>DP</sub>, F<sub>TP</sub>]</span></p>
       <ol>
-        <li><span class="shape">dOut[B<sub>X</sub>, D<sub>Y</sub>]</span> = …</li>
-        <li><span class="shape">dOut[B<sub>X</sub>, D]</span> = <span class="op op-ag">AllGather</span><sub>Y</sub>(<span class="shape">dOut[B<sub>X</sub>, D<sub>Y</sub>]</span>) <em>(on critical path)</em></li>
-        <li><span class="shape">dW<sub>out</sub>[F<sub>Y</sub>, D]</span> {U<sub>X</sub>} = <span class="shape">Tmp[B<sub>X</sub>, F<sub>Y</sub>]</span> ·<sub>B</sub> <span class="shape">dOut[B<sub>X</sub>, D]</span></li>
-        <li><span class="shape">dW<sub>out</sub>[F<sub>Y</sub>, D<sub>X</sub>]</span> = <span class="op op-rs">ReduceScatter</span><sub>X</sub>(<span class="shape">dW<sub>out</sub>[F<sub>Y</sub>, D]</span> {U<sub>X</sub>})</li>
-        <li><span class="shape">W<sub>out</sub>[F<sub>Y</sub>, D]</span> = <span class="op op-ag">AllGather</span><sub>X</sub>(<span class="shape">W<sub>out</sub>[F<sub>Y</sub>, D<sub>X</sub>]</span>) <em>(can be done ahead of time)</em></li>
-        <li><span class="shape">dTmp[B<sub>X</sub>, F<sub>Y</sub>]</span> = <span class="shape">dOut[B<sub>X</sub>, D]</span> ·<sub>D</sub> <span class="shape">W<sub>out</sub>[F<sub>Y</sub>, D]</span> <em>(can throw away dOut[B, D] here)</em></li>
-        <li><span class="shape">In[B<sub>X</sub>, D]</span> = <span class="op op-ag">AllGather</span><sub>Y</sub>(<span class="shape">In[B<sub>X</sub>, D<sub>Y</sub>]</span>) <em>(not on critical path + this can be shared with (2) from the previous layer)</em></li>
-        <li><span class="shape">dW<sub>in</sub>[D, F<sub>Y</sub>]</span> {U<sub>X</sub>} = <span class="shape">In[B<sub>X</sub>, D]</span> ·<sub>B</sub> <span class="shape">dTmp[B<sub>X</sub>, F<sub>Y</sub>]</span></li>
-        <li><span class="shape">dW<sub>in</sub>[D<sub>X</sub>, F<sub>Y</sub>]</span> = <span class="op op-rs">ReduceScatter</span><sub>X</sub>(<span class="shape">dW<sub>in</sub>[D, F<sub>Y</sub>]</span> {U<sub>X</sub>})</li>
-        <li><span class="shape">W<sub>in</sub>[D, F<sub>Y</sub>]</span> = <span class="op op-ag">AllGather</span><sub>X</sub>(<span class="shape">W<sub>in</sub>[D<sub>X</sub>, F<sub>Y</sub>]</span>) <em>(can be done ahead of time)</em></li>
-        <li><span class="shape">dIn[B<sub>X</sub>, D]</span> {U<sub>Y</sub>} = <span class="shape">dTmp[B<sub>X</sub>, F<sub>Y</sub>]</span> ·<sub>F</sub> <span class="shape">W<sub>in</sub>[D, F<sub>Y</sub>]</span> <em>(needed for previous layers)</em></li>
-        <li><span class="shape">dIn[B<sub>X</sub>, D<sub>Y</sub>]</span> = <span class="op op-rs">ReduceScatter</span><sub>Y</sub>(<span class="shape">dIn[B<sub>X</sub>, D]</span> {U<sub>Y</sub>}) <em>(on critical path)</em></li>
+        <li><span class="shape">dOut[B<sub>DP</sub>, D<sub>TP</sub>]</span> = …</li>
+        <li><span class="shape">dOut[B<sub>DP</sub>, D]</span> = <span class="op op-ag">AllGather</span><sub>TP</sub>(<span class="shape">dOut[B<sub>DP</sub>, D<sub>TP</sub>]</span>) <em>(on critical path)</em></li>
+        <li><span class="shape">dW<sub>out</sub>[F<sub>TP</sub>, D]</span> {U<sub>DP</sub>} = <span class="shape">Tmp[B<sub>DP</sub>, F<sub>TP</sub>]</span> ·<sub>B</sub> <span class="shape">dOut[B<sub>DP</sub>, D]</span></li>
+        <li><span class="shape">dW<sub>out</sub>[F<sub>TP</sub>, D<sub>DP</sub>]</span> = <span class="op op-rs">ReduceScatter</span><sub>DP</sub>(<span class="shape">dW<sub>out</sub>[F<sub>TP</sub>, D]</span> {U<sub>DP</sub>})</li>
+        <li><span class="shape">W<sub>out</sub>[F<sub>TP</sub>, D]</span> = <span class="op op-ag">AllGather</span><sub>DP</sub>(<span class="shape">W<sub>out</sub>[F<sub>TP</sub>, D<sub>DP</sub>]</span>) <em>(can be done ahead of time)</em></li>
+        <li><span class="shape">dTmp[B<sub>DP</sub>, F<sub>TP</sub>]</span> = <span class="shape">dOut[B<sub>DP</sub>, D]</span> ·<sub>D</sub> <span class="shape">W<sub>out</sub>[F<sub>TP</sub>, D]</span> <em>(can throw away dOut[B, D] here)</em></li>
+        <li><span class="shape">In[B<sub>DP</sub>, D]</span> = <span class="op op-ag">AllGather</span><sub>TP</sub>(<span class="shape">In[B<sub>DP</sub>, D<sub>TP</sub>]</span>) <em>(not on critical path + this can be shared with (2) from the previous layer)</em></li>
+        <li><span class="shape">dW<sub>in</sub>[D, F<sub>TP</sub>]</span> {U<sub>DP</sub>} = <span class="shape">In[B<sub>DP</sub>, D]</span> ·<sub>B</sub> <span class="shape">dTmp[B<sub>DP</sub>, F<sub>TP</sub>]</span></li>
+        <li><span class="shape">dW<sub>in</sub>[D<sub>DP</sub>, F<sub>TP</sub>]</span> = <span class="op op-rs">ReduceScatter</span><sub>DP</sub>(<span class="shape">dW<sub>in</sub>[D, F<sub>TP</sub>]</span> {U<sub>DP</sub>})</li>
+        <li><span class="shape">W<sub>in</sub>[D, F<sub>TP</sub>]</span> = <span class="op op-ag">AllGather</span><sub>DP</sub>(<span class="shape">W<sub>in</sub>[D<sub>DP</sub>, F<sub>TP</sub>]</span>) <em>(can be done ahead of time)</em></li>
+        <li><span class="shape">dIn[B<sub>DP</sub>, D]</span> {U<sub>TP</sub>} = <span class="shape">dTmp[B<sub>DP</sub>, F<sub>TP</sub>]</span> ·<sub>F</sub> <span class="shape">W<sub>in</sub>[D, F<sub>TP</sub>]</span> <em>(needed for previous layers)</em></li>
+        <li><span class="shape">dIn[B<sub>DP</sub>, D<sub>TP</sub>]</span> = <span class="op op-rs">ReduceScatter</span><sub>TP</sub>(<span class="shape">dIn[B<sub>DP</sub>, D]</span> {U<sub>TP</sub>}) <em>(on critical path)</em></li>
       </ol>
     </div>
   </details>
@@ -90,43 +90,43 @@
   per-shard are smaller.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
   This maxim is <a href="#roofline">the primer</a>'s weights-move vs
   activations-move toggle made load-bearing: per layer in bf16, FSDP's freight
-  is 2 · <i class="v v-D">D</i> · <span class="t-show inline" data-expr="E>1"><i class="v">E</i> · </span><i class="v v-F">F</i>/<i class="v v-Y">Y</i> =
-  <span class="t-out" data-expr="2*D*E*F/Y" data-fmt="bytes"></span> of weights
-  while TP's is 2 · <i class="v v-B">B</i> · <i class="v v-D">D</i>/<i class="v v-X">X</i> =
-  <span class="t-out" data-expr="2*B*D/X" data-fmt="bytes"></span> of
+  is 2 · <i class="v v-D">D</i> · <span class="t-show inline" data-expr="E>1"><i class="v">E</i> · </span><i class="v v-F">F</i>/<i class="v v-TP">TP</i> =
+  <span class="t-out" data-expr="2*D*E*F/TP" data-fmt="bytes"></span> of weights
+  while TP's is 2 · <i class="v v-B">B</i> · <i class="v v-D">D</i>/<i class="v v-DP">DP</i> =
+  <span class="t-out" data-expr="2*B*D/DP" data-fmt="bytes"></span> of
   activations — each scheme shrinks the <em>other's</em> bill.</span></span></p>
 
   <ul>
     <li>Tensor parallelism performs
-      <span class="op op-ag">AllGather</span><sub>Y</sub>(<span class="shape">[B<sub>X</sub>, D<sub>Y</sub>]</span>)
-      which shrinks as <i class="v v-X">X</i> grows.</li>
+      <span class="op op-ag">AllGather</span><sub>TP</sub>(<span class="shape">[B<sub>DP</sub>, D<sub>TP</sub>]</span>)
+      which shrinks as <i class="v v-DP">DP</i> grows.</li>
     <li>FSDP performs
-      <span class="op op-ag">AllGather</span><sub>X</sub>(<span class="shape">[D<sub>X</sub>, F<sub>Y</sub>]</span>)
-      which shrinks as <i class="v v-Y">Y</i> grows.</li>
+      <span class="op op-ag">AllGather</span><sub>DP</sub>(<span class="shape">[D<sub>DP</sub>, F<sub>TP</sub>]</span>)
+      which shrinks as <i class="v v-TP">TP</i> grows.</li>
   </ul>
 
   <p>Thus by combining both we can push our minimum batch size per replica down
   even more. We can calculate the optimal amount of FSDP and TP in the same way
   as above:</p>
 
-  <p>Let <i class="v v-X">X</i> be the number of chips dedicated to FSDP and
-  <i class="v v-Y">Y</i> be the number of chips dedicated to tensor
+  <p>Let <i class="v v-DP">DP</i> be the number of chips dedicated to FSDP and
+  <i class="v v-TP">TP</i> be the number of chips dedicated to tensor
   parallelism. Let <i class="v v-N">N</i> be the total number of chips in our
-  slice with <span class="eq-i"><i class="v v-N">N</i> = <i class="v v-X">X</i><i class="v v-Y">Y</i></span>.
-  Let <i class="v v-M">M<sub>X</sub></i> and <i class="v v-M">M<sub>Y</sub></i>
+  slice with <span class="eq-i"><i class="v v-N">N</i> = <i class="v v-DP">DP</i><i class="v v-TP">TP</i></span>.
+  Let <i class="v v-M">M<sub>DP</sub></i> and <i class="v v-M">M<sub>TP</sub></i>
   be the number of mesh axes over which we do FSDP and TP respectively (these
   should roughly sum to 3). We'll purely model the forward pass since it has
   the most communication per FLOP. Then adding up the comms in the algorithm
   above, we have</p>
 
   <div class="eq">
-    T<sub>FSDP comms</sub>(<i class="v v-B">B</i>, <i class="v v-X">X</i>, <i class="v v-Y">Y</i>) =
-    <span class="frac"><span>2 · 2 · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span><i class="v v-Y">Y</i> · <i class="v v-W">W<sub>ici</sub></i> · <i class="v v-M">M<sub>X</sub></i></span></span>
+    T<sub>FSDP comms</sub>(<i class="v v-B">B</i>, <i class="v v-DP">DP</i>, <i class="v v-TP">TP</i>) =
+    <span class="frac"><span>2 · 2 · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span><i class="v v-TP">TP</i> · <i class="v v-W">W<sub>ici</sub></i> · <i class="v v-M">M<sub>DP</sub></i></span></span>
   </div>
 
   <div class="eq">
-    T<sub>TP comms</sub>(<i class="v v-B">B</i>, <i class="v v-X">X</i>, <i class="v v-Y">Y</i>) =
-    <span class="frac"><span>2 · 2 · <i class="v v-B">B</i> · <i class="v v-D">D</i></span><span><i class="v v-X">X</i> · <i class="v v-W">W<sub>ici</sub></i> · <i class="v v-M">M<sub>Y</sub></i></span></span>
+    T<sub>TP comms</sub>(<i class="v v-B">B</i>, <i class="v v-DP">DP</i>, <i class="v v-TP">TP</i>) =
+    <span class="frac"><span>2 · 2 · <i class="v v-B">B</i> · <i class="v v-D">D</i></span><span><i class="v v-DP">DP</i> · <i class="v v-W">W<sub>ici</sub></i> · <i class="v v-M">M<sub>TP</sub></i></span></span>
   </div>
 
   <p>And likewise our total FLOPs time is</p>
@@ -137,23 +137,23 @@
   </div>
 
   <div class="eq-live">right now, with
-    <i class="v v-M">M<sub>X</sub></i> =
-    <span class="t-var" data-var="MX" data-min="1" data-max="3" data-scale="lin" data-snap="int" data-fmt="int"></span>
+    <i class="v v-M">M<sub>DP</sub></i> =
+    <span class="t-var" data-var="MDP" data-min="1" data-max="3" data-scale="lin" data-snap="int" data-fmt="int"></span>
     mesh axes carrying FSDP and
-    <i class="v v-M">M<sub>Y</sub></i> =
-    <span class="t-var" data-var="MY" data-min="1" data-max="3" data-scale="lin" data-snap="int" data-fmt="int"></span>
+    <i class="v v-M">M<sub>TP</sub></i> =
+    <span class="t-var" data-var="MTP" data-min="1" data-max="3" data-scale="lin" data-snap="int" data-fmt="int"></span>
     carrying TP<span class="t-show inline" data-expr="E>1"> (MoE: the weight gathers carry E·F, the FLOPs k·F)</span>:
-    T<sub>FSDP comms</sub> = <span class="t-out" data-expr="4*D*E*F/(Y*Wici*MX)" data-fmt="time"></span>,
-    T<sub>TP comms</sub> = <span class="t-out" data-expr="4*B*D/(X*Wici*MY)" data-fmt="time"></span>,
-    T<sub>math</sub> = <span class="t-out" data-expr="4*B*D*k*F/(X*Y*C)" data-fmt="time"></span> per layer
+    T<sub>FSDP comms</sub> = <span class="t-out" data-expr="4*D*E*F/(TP*Wici*MDP)" data-fmt="time"></span>,
+    T<sub>TP comms</sub> = <span class="t-out" data-expr="4*B*D/(DP*Wici*MTP)" data-fmt="time"></span>,
+    T<sub>math</sub> = <span class="t-out" data-expr="4*B*D*k*F/(DP*TP*C)" data-fmt="time"></span> per layer
   </div>
 
   <p>To simplify the analysis, we make two assumptions: first, we allow
-  <i class="v v-X">X</i> and <i class="v v-Y">Y</i> to take on non-integer
+  <i class="v v-DP">DP</i> and <i class="v v-TP">TP</i> to take on non-integer
   values (as long as they are positive and satisfy
-  <span class="eq-i"><i class="v v-X">X</i><i class="v v-Y">Y</i> = <i class="v v-N">N</i></span>);
+  <span class="eq-i"><i class="v v-DP">DP</i><i class="v v-TP">TP</i> = <i class="v v-N">N</i></span>);
   second, we assume that we can fully overlap comms on the
-  <i class="v v-X">X</i> and <i class="v v-Y">Y</i> axis with each other. Under
+  <i class="v v-DP">DP</i> and <i class="v v-TP">TP</i> axis with each other. Under
   the second assumption, the total comms time is</p>
 
   <div class="eq">
@@ -161,44 +161,44 @@
   </div>
 
   <p>Before we ask under what conditions we'll be compute-bound, let's find the
-  optimal values for <i class="v v-X">X</i> and <i class="v v-Y">Y</i> to
+  optimal values for <i class="v v-DP">DP</i> and <i class="v v-TP">TP</i> to
   minimize our total communication. Since our FLOPs is independent of
-  <i class="v v-X">X</i> and <i class="v v-Y">Y</i>, the optimal settings are
+  <i class="v v-DP">DP</i> and <i class="v v-TP">TP</i>, the optimal settings are
   those that simply minimize comms. To do this, let's write
-  T<sub>comms</sub> above in terms of <i class="v v-X">X</i> and
+  T<sub>comms</sub> above in terms of <i class="v v-DP">DP</i> and
   <i class="v v-N">N</i> (which is held fixed, as it's the number of chips in
-  our system) rather than <i class="v v-X">X</i> and <i class="v v-Y">Y</i>:</p>
+  our system) rather than <i class="v v-DP">DP</i> and <i class="v v-TP">TP</i>:</p>
 
   <div class="eq">
-    T<sub>comms</sub>(<i class="v v-X">X</i>) =
+    T<sub>comms</sub>(<i class="v v-DP">DP</i>) =
     <span class="frac"><span>4 · <i class="v v-D">D</i></span><span><i class="v v-W">W<sub>ici</sub></i></span></span>
     · max<span class="eq-i">(
-    <span class="frac"><span><i class="v v-F">F</i> · <i class="v v-X">X</i></span><span><i class="v v-N">N</i> · <i class="v v-M">M<sub>X</sub></i></span></span>,
-    <span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-X">X</i> · <i class="v v-M">M<sub>Y</sub></i></span></span>
+    <span class="frac"><span><i class="v v-F">F</i> · <i class="v v-DP">DP</i></span><span><i class="v v-N">N</i> · <i class="v v-M">M<sub>DP</sub></i></span></span>,
+    <span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-DP">DP</i> · <i class="v v-M">M<sub>TP</sub></i></span></span>
     )</span>
   </div>
 
   <p>Because T<sub>FSDP comms</sub> is monotonically increasing in
-  <i class="v v-X">X</i>, and T<sub>TP comms</sub> is monotonically decreasing
-  in <i class="v v-X">X</i>, the maximum must be minimized when
+  <i class="v v-DP">DP</i>, and T<sub>TP comms</sub> is monotonically decreasing
+  in <i class="v v-DP">DP</i>, the maximum must be minimized when
   <span class="eq-i">T<sub>FSDP comms</sub> = T<sub>TP comms</sub></span>,
   which occurs when</p>
 
   <div class="eq">
-    <span class="frac"><span><i class="v v-F">F</i> · <i class="v v-X">X<sub>opt</sub></i></span><span><i class="v v-M">M<sub>X</sub></i></span></span>
-    = <span class="frac"><span><i class="v v-B">B</i> · <i class="v v-N">N</i></span><span><i class="v v-X">X<sub>opt</sub></i> · <i class="v v-M">M<sub>Y</sub></i></span></span>
+    <span class="frac"><span><i class="v v-F">F</i> · <i class="v v-DP">DP<sub>opt</sub></i></span><span><i class="v v-M">M<sub>DP</sub></i></span></span>
+    = <span class="frac"><span><i class="v v-B">B</i> · <i class="v v-N">N</i></span><span><i class="v v-DP">DP<sub>opt</sub></i> · <i class="v v-M">M<sub>TP</sub></i></span></span>
     &nbsp;→&nbsp;
-    <i class="v v-X">X<sub>opt</sub></i> =
-    <span class="sqrt"><span><span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-F">F</i></span></span> · <span class="frac"><span><i class="v v-M">M<sub>X</sub></i></span><span><i class="v v-M">M<sub>Y</sub></i></span></span> · <i class="v v-N">N</i></span></span>
+    <i class="v v-DP">DP<sub>opt</sub></i> =
+    <span class="sqrt"><span><span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-F">F</i></span></span> · <span class="frac"><span><i class="v v-M">M<sub>DP</sub></i></span><span><i class="v v-M">M<sub>TP</sub></i></span></span> · <i class="v v-N">N</i></span></span>
   </div>
 
   <div class="eq-live">right now:
-    <i class="v v-X">X<sub>opt</sub></i> = <span class="t-out" data-expr="sqrt(B*MX*N/(E*F*MY))" data-fmt="sig3"></span><span class="t-show inline" data-expr="E>1"> (the weight term is E·F wide, so E joins F under the radical)</span>
+    <i class="v v-DP">DP<sub>opt</sub></i> = <span class="t-out" data-expr="sqrt(B*MDP*N/(E*F*MTP))" data-fmt="sig3"></span><span class="t-show inline" data-expr="E>1"> (the weight term is E·F wide, so E joins F under the radical)</span>
     → nearest power of two:
-    <span class="t-out" data-expr="pow(2, round(log2(max(1, min(N, sqrt(B*MX*N/(E*F*MY)))))))" data-fmt="int"></span>
+    <span class="t-out" data-expr="pow(2, round(log2(max(1, min(N, sqrt(B*MDP*N/(E*F*MTP)))))))" data-fmt="int"></span>
     chips of FSDP, with the current
-    <i class="v v-X">X</i> = <span class="t-out" data-expr="X" data-fmt="int"></span>,
-    <i class="v v-Y">Y</i> = <span class="t-out" data-expr="Y" data-fmt="int"></span>
+    <i class="v v-DP">DP</i> = <span class="t-out" data-expr="DP" data-fmt="int"></span>,
+    <i class="v v-TP">TP</i> = <span class="t-out" data-expr="TP" data-fmt="int"></span>
   </div>
 
   <p>This is super useful! This tells us, for a given <i class="v v-B">B</i>,
@@ -206,26 +206,26 @@
   optimal. Let's get a sense of scale. Plugging in realistic values, namely
   <i class="v v-N">N</i> = 64 (corresponding to a 4x4x4 array of chips),
   <i class="v v-B">B</i> = 48,000, <i class="v v-F">F</i> = 32768, gives
-  roughly <span class="eq-i"><i class="v v-X">X</i> ≈ <span class="t-out" data-expr="sqrt(48000*2*64/32768)" data-fmt="sig3"></span></span>.
-  So we would choose <i class="v v-X">X</i> to be 16 and
-  <i class="v v-Y">Y</i> to be 4, close to our calculated
+  roughly <span class="eq-i"><i class="v v-DP">DP</i> ≈ <span class="t-out" data-expr="sqrt(48000*2*64/32768)" data-fmt="sig3"></span></span>.
+  So we would choose <i class="v v-DP">DP</i> to be 16 and
+  <i class="v v-TP">TP</i> to be 4, close to our calculated
   optimum.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
   The chapter rounds this to ≈13.9; the pinned live value here is
   √(48,000 · 2 · 64 / 32,768) exactly. And at whatever is loaded right now,
-  <i class="v v-X">X<sub>opt</sub></i> =
-  <span class="t-out" data-expr="sqrt(B*MX*N/(E*F*MY))" data-fmt="sig3"></span>.
+  <i class="v v-DP">DP<sub>opt</sub></i> =
+  <span class="t-out" data-expr="sqrt(B*MDP*N/(E*F*MTP))" data-fmt="sig3"></span>.
   Press the first button below to load the chapter's exact scenario into the
   whole page.</span></span></p>
 
   <div class="preset-row"><span class="preset-label">Try:</span>
-    <button class="t-preset" data-set='{"X":16,"Y":4,"B":48000,"F":32768,"MX":2,"MY":1}'>chapter example: 4×4×4 cube, B=48k, F=32,768</button>
-    <button class="t-preset" data-set='{"X":512,"Y":8,"B":2000000,"F":28672,"MX":2,"MY":1}'>back to page defaults</button>
+    <button class="t-preset" data-set='{"DP":16,"TP":4,"B":48000,"F":32768,"MDP":2,"MTP":1}'>chapter example: 4×4×4 cube, B=48k, F=32,768</button>
+    <button class="t-preset" data-set='{"DP":512,"TP":8,"B":2000000,"F":28672,"MDP":2,"MTP":1}'>back to page defaults</button>
   </div>
 
   <div class="takeaway"><strong>Takeaway:</strong> in general, during training,
   the optimal amount of FSDP is
-  <span class="eq-i"><i class="v v-X">X<sub>opt</sub></i> =
-  <span class="sqrt"><span><span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-F">F</i></span></span> · <span class="frac"><span><i class="v v-M">M<sub>X</sub></i></span><span><i class="v v-M">M<sub>Y</sub></i></span></span> · <i class="v v-N">N</i></span></span></span>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+  <span class="eq-i"><i class="v v-DP">DP<sub>opt</sub></i> =
+  <span class="sqrt"><span><span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-F">F</i></span></span> · <span class="frac"><span><i class="v v-M">M<sub>DP</sub></i></span><span><i class="v v-M">M<sub>TP</sub></i></span></span> · <i class="v v-N">N</i></span></span></span>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
   You can <em>feel</em> this optimum in the figure below, which holds
   <i class="v v-N">N</i> fixed and sweeps the split. Try: drag the marker to
   either extreme — all-FSDP on the right, all-TP on the left — and watch the
@@ -241,14 +241,14 @@
     <div class="widget" data-widget="xy-explorer" data-opts='{}'></div>
     <figcaption>Trading FSDP for tensor parallelism at fixed
     <i class="v v-N">N</i> = <span class="t-out" data-expr="N" data-fmt="int"></span>.
-    Blue: T<sub>FSDP comms</sub>, rising in <i class="v v-X">X</i>. Orange:
-    T<sub>TP comms</sub>, falling in <i class="v v-X">X</i>. The emphasized
+    Blue: T<sub>FSDP comms</sub>, rising in <i class="v v-DP">DP</i>. Orange:
+    T<sub>TP comms</sub>, falling in <i class="v v-DP">DP</i>. The emphasized
     upper envelope is what you actually wait for; the dashed ink line is
     T<sub>math</sub>, and wherever the envelope dips below it the layer is
-    compute-bound. Drag the marker: it sets <i class="v v-X">X</i> (and
-    <i class="v v-Y">Y</i> = <i class="v v-N">N</i>/<i class="v v-X">X</i>) for
-    the whole page. The dotted drop-line marks <i class="v v-X">X<sub>opt</sub></i> =
-    <span class="t-out" data-expr="sqrt(B*MX*N/(E*F*MY))" data-fmt="sig3"></span>.</figcaption>
+    compute-bound. Drag the marker: it sets <i class="v v-DP">DP</i> (and
+    <i class="v v-TP">TP</i> = <i class="v v-N">N</i>/<i class="v v-DP">DP</i>) for
+    the whole page. The dotted drop-line marks <i class="v v-DP">DP<sub>opt</sub></i> =
+    <span class="t-out" data-expr="sqrt(B*MDP*N/(E*F*MTP))" data-fmt="sig3"></span>.</figcaption>
   </figure>
 
   <p>Now let's return to the question we've been asking of all our parallelism
@@ -268,21 +268,21 @@
 
   <div class="eq">
     max<span class="eq-i">(
-    <span class="frac"><span><i class="v v-F">F</i></span><span><i class="v v-Y">Y</i> · <i class="v v-M">M<sub>X</sub></i></span></span>,
-    <span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-X">X</i> · <i class="v v-M">M<sub>Y</sub></i></span></span>
+    <span class="frac"><span><i class="v v-F">F</i></span><span><i class="v v-TP">TP</i> · <i class="v v-M">M<sub>DP</sub></i></span></span>,
+    <span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-DP">DP</i> · <i class="v v-M">M<sub>TP</sub></i></span></span>
     )</span>
     &lt;
     <span class="frac"><span><i class="v v-B">B</i> · <i class="v v-F">F</i></span><span><i class="v v-N">N</i> · α</span></span>
   </div>
 
-  <p>Since we calculated <i class="v v-X">X<sub>opt</sub></i> to make the LHS maximum equal, we can
+  <p>Since we calculated <i class="v v-DP">DP<sub>opt</sub></i> to make the LHS maximum equal, we can
   just plug it into either side (noting that
-  <span class="eq-i"><i class="v v-Y">Y<sub>opt</sub></i> = <i class="v v-N">N</i>/<i class="v v-X">X<sub>opt</sub></i></span>),
+  <span class="eq-i"><i class="v v-TP">TP<sub>opt</sub></i> = <i class="v v-N">N</i>/<i class="v v-DP">DP<sub>opt</sub></i></span>),
   i.e.</p>
 
   <div class="eq">
-    <span class="frac"><span><i class="v v-F">F</i></span><span><i class="v v-N">N</i> · <i class="v v-W">W<sub>ici</sub></i> · <i class="v v-M">M<sub>X</sub></i></span></span>
-    <span class="sqrt"><span><span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-F">F</i></span></span> · <span class="frac"><span><i class="v v-M">M<sub>X</sub></i></span><span><i class="v v-M">M<sub>Y</sub></i></span></span> · <i class="v v-N">N</i></span></span>
+    <span class="frac"><span><i class="v v-F">F</i></span><span><i class="v v-N">N</i> · <i class="v v-W">W<sub>ici</sub></i> · <i class="v v-M">M<sub>DP</sub></i></span></span>
+    <span class="sqrt"><span><span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-F">F</i></span></span> · <span class="frac"><span><i class="v v-M">M<sub>DP</sub></i></span><span><i class="v v-M">M<sub>TP</sub></i></span></span> · <i class="v v-N">N</i></span></span>
     &lt;
     <span class="frac"><span><i class="v v-B">B</i> · <i class="v v-F">F</i></span><span><i class="v v-N">N</i> · <i class="v v-C">C</i></span></span>
   </div>
@@ -290,7 +290,7 @@
   <p>Further simplifying, we find that</p>
 
   <div class="eq">
-    <span class="sqrt"><span><span class="frac"><span><i class="v v-B">B</i> · <i class="v v-F">F</i></span><span><i class="v v-M">M<sub>X</sub></i> · <i class="v v-M">M<sub>Y</sub></i> · <i class="v v-N">N</i></span></span></span></span>
+    <span class="sqrt"><span><span class="frac"><span><i class="v v-B">B</i> · <i class="v v-F">F</i></span><span><i class="v v-M">M<sub>DP</sub></i> · <i class="v v-M">M<sub>TP</sub></i> · <i class="v v-N">N</i></span></span></span></span>
     &lt;
     <span class="frac"><span><i class="v v-B">B</i> · <i class="v v-F">F</i></span><span><i class="v v-N">N</i> · α</span></span>,
   </div>
@@ -305,11 +305,11 @@
   <div class="eq">
     <span class="frac"><span>T<sub>math</sub></span><span>T<sub>comms</sub></span></span>
     =
-    <span class="frac"><span><span class="sqrt"><span><i class="v v-B">B</i><i class="v v-F">F</i></span></span> <span class="sqrt"><span><i class="v v-M">M<sub>X</sub></i> <i class="v v-M">M<sub>Y</sub></i></span></span></span><span>α <span class="sqrt"><span><i class="v v-N">N</i></span></span></span></span>
+    <span class="frac"><span><span class="sqrt"><span><i class="v v-B">B</i><i class="v v-F">F</i></span></span> <span class="sqrt"><span><i class="v v-M">M<sub>DP</sub></i> <i class="v v-M">M<sub>TP</sub></i></span></span></span><span>α <span class="sqrt"><span><i class="v v-N">N</i></span></span></span></span>
   </div>
   <div class="eq-live">right now:
     T<sub>math</sub>/T<sub>comms</sub> =
-    <span class="t-out" data-expr="k*sqrt(B*F*MX*MY)/(alpha*sqrt(N*E))" data-fmt="x"></span>
+    <span class="t-out" data-expr="k*sqrt(B*F*MDP*MTP)/(alpha*sqrt(N*E))" data-fmt="x"></span>
     at the optimal mix, with α =
     <span class="t-out" data-expr="alpha" data-fmt="int"></span><span class="t-show inline" data-expr="E>1"> (MoE: the ratio gains k/√E — FLOPs carry k·F, the gathered weights E·F)</span>
   </div>
@@ -320,20 +320,20 @@
   <div class="eq">
     <span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-N">N</i></span></span>
     &gt;
-    <span class="frac"><span>α<sup>2</sup></span><span><i class="v v-M">M<sub>X</sub></i> · <i class="v v-M">M<sub>Y</sub></i> · <i class="v v-F">F</i></span></span>
+    <span class="frac"><span>α<sup>2</sup></span><span><i class="v v-M">M<sub>DP</sub></i> · <i class="v v-M">M<sub>TP</sub></i> · <i class="v v-F">F</i></span></span>
   </div>
 
   <div class="eq-live">right now:
     <i class="v v-B">B</i>/<i class="v v-N">N</i> =
     <span class="t-out" data-expr="B/N" data-fmt="int"></span> vs threshold
-    <span class="t-show inline" data-expr="E>1">α²·E/(M<sub>X</sub>·M<sub>Y</sub>·k²·F) = </span><span class="t-out" data-expr="alpha*alpha*E/(MX*MY*k*k*F)" data-fmt="int"></span>
+    <span class="t-show inline" data-expr="E>1">α²·E/(M<sub>DP</sub>·M<sub>TP</sub>·k²·F) = </span><span class="t-out" data-expr="alpha*alpha*E/(MDP*MTP*k*k*F)" data-fmt="int"></span>
     tokens/chip →
-    <span class="t-if" data-expr="B/N &gt; alpha*alpha*E/(MX*MY*k*k*F)" data-then="compute-bound at the optimal mix ✓" data-else="comms-bound even at the optimal mix ✗"></span>
+    <span class="t-if" data-expr="B/N &gt; alpha*alpha*E/(MDP*MTP*k*k*F)" data-then="compute-bound at the optimal mix ✓" data-else="comms-bound even at the optimal mix ✗"></span>
   </div>
 
   <p>To get approximate numbers, again plug in <i class="v v-F">F</i> = 32,768,
   α = 2550, and
-  <span class="eq-i"><i class="v v-M">M<sub>X</sub></i><i class="v v-M">M<sub>Y</sub></i> = 2</span>
+  <span class="eq-i"><i class="v v-M">M<sub>DP</sub></i><i class="v v-M">M<sub>TP</sub></i> = 2</span>
   (as it must be for a 3D mesh). This gives roughly
   <span class="eq-i"><i class="v v-B">B</i>/<i class="v v-N">N</i> &gt;
   <span class="t-out" data-expr="2550*2550/(2*32768)" data-fmt="int"></span></span>.
@@ -343,7 +343,7 @@
   <span class="t-out" data-expr="2550/3" data-fmt="int"></span> to be compute
   bound.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
   At this page's live values the threshold is
-  <span class="t-out" data-expr="alpha*alpha*E/(MX*MY*k*k*F)" data-fmt="int"></span>
+  <span class="t-out" data-expr="alpha*alpha*E/(MDP*MTP*k*k*F)" data-fmt="int"></span>
   tokens/chip (the 850 for pure FSDP is α/3, all three mesh axes carrying the
   weight collectives). Watch the two clocks race in the meter below. Try: drag
   <i class="v v-B">B</i> =
@@ -352,17 +352,17 @@
   <i class="v v-B">B</i>/<i class="v v-N">N</i> =
   <span class="t-out" data-expr="B/N" data-fmt="int"></span> against the
   threshold — the flip lands right at the ridge (assuming
-  <i class="v v-X">X</i> is near <i class="v v-X">X<sub>opt</sub></i>; if it's far off, the flip
+  <i class="v v-DP">DP</i> is near <i class="v v-DP">DP<sub>opt</sub></i>; if it's far off, the flip
   comes sooner).</span></span></p>
 
   <figure class="breakout">
     <div class="widget" data-widget="bound-meter" data-opts='{"scheme":"mixed"}'></div>
     <figcaption>T<sub>math</sub> vs T<sub>comms</sub> = max(T<sub>FSDP</sub>,
     T<sub>TP</sub>) for one mixed FSDP + TP layer, to scale, with the verdict
-    at the current <i class="v v-X">X</i> =
-    <span class="t-out" data-expr="X" data-fmt="int"></span>,
-    <i class="v v-Y">Y</i> =
-    <span class="t-out" data-expr="Y" data-fmt="int"></span>.</figcaption>
+    at the current <i class="v v-DP">DP</i> =
+    <span class="t-out" data-expr="DP" data-fmt="int"></span>,
+    <i class="v v-TP">TP</i> =
+    <span class="t-out" data-expr="TP" data-fmt="int"></span>.</figcaption>
   </figure>
 
   <div class="takeaway"><strong>Takeaway:</strong> combining tensor parallelism
@@ -392,7 +392,7 @@
   schemes.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
   That second figure is the same chart in <em>absolute-times</em> view. A
   16x16x16 slice is 4096 chips — exactly the page's default
-  <i class="v v-X">X</i>·<i class="v v-Y">Y</i> = 512 · 8, so the
+  <i class="v v-DP">DP</i>·<i class="v v-TP">TP</i> = 512 · 8, so the
   &ldquo;back to page defaults&rdquo; preset above reproduces it.</span></span></p>
 
   <p>The black curve is the amount of time spent on model FLOPs, meaning any
@@ -405,8 +405,8 @@
   curve is aqua in this page's palette, so the color word was
   changed.<span class="sn-post"><span class="sn-tag">adaptation</span>
   On the live chart that crossing sits at
-  <i class="v v-B">B</i> = <i class="v v-N">N</i>·α²<span class="t-show inline" data-expr="E>1">·<i class="v">E</i></span>/(<i class="v v-M">M<sub>X</sub></i>·<i class="v v-M">M<sub>Y</sub></i>·<span class="t-show inline" data-expr="E>1"><i class="v">k</i>²·</span><i class="v v-F">F</i>) =
-  <span class="t-out" data-expr="N*alpha*alpha*E/(MX*MY*k*k*F)" data-fmt="tokens"></span>
+  <i class="v v-B">B</i> = <i class="v v-N">N</i>·α²<span class="t-show inline" data-expr="E>1">·<i class="v">E</i></span>/(<i class="v v-M">M<sub>DP</sub></i>·<i class="v v-M">M<sub>TP</sub></i>·<span class="t-show inline" data-expr="E>1"><i class="v">k</i>²·</span><i class="v v-F">F</i>) =
+  <span class="t-out" data-expr="N*alpha*alpha*E/(MDP*MTP*k*k*F)" data-fmt="tokens"></span>
   total tokens; the chapter's 4e5 is this same formula evaluated at its
   16x16x16, F ≈ 30k scenario.</span></span></span></p>
 
@@ -432,11 +432,11 @@
   differences in the number of axes for
   each.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
   The chapter's animation swept the FSDP/TP split itself; on this page that
-  sweep is the earlier <i class="v v-X">X</i>-axis explorer, whose optimum at the current state is
-  <i class="v v-X">X<sub>opt</sub></i> =
-  <span class="t-out" data-expr="sqrt(B*MX*N/(E*F*MY))" data-fmt="sig3"></span>
+  sweep is the earlier <i class="v v-DP">DP</i>-axis explorer, whose optimum at the current state is
+  <i class="v v-DP">DP<sub>opt</sub></i> =
+  <span class="t-out" data-expr="sqrt(B*MDP*N/(E*F*MTP))" data-fmt="sig3"></span>
   → nearest power of two
-  <span class="t-out" data-expr="pow(2, round(log2(max(1, min(N, sqrt(B*MX*N/(E*F*MY)))))))" data-fmt="int"></span>-way
+  <span class="t-out" data-expr="pow(2, round(log2(max(1, min(N, sqrt(B*MDP*N/(E*F*MTP)))))))" data-fmt="int"></span>-way
   FSDP. The ±wiggle from mesh-axis bookkeeping is exactly the
-  M<sub>X</sub>, M<sub>Y</sub> factors you can scrub above.</span></span></p>
+  M<sub>DP</sub>, M<sub>TP</sub> factors you can scrub above.</span></span></p>
 </section>

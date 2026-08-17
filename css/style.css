@@ -36,13 +36,14 @@
   --dim-B: #4a3aa7;
   --dim-D: #1c5cab;
   --dim-F: #9a4a00;
-  --dim-X: #00695f;
-  --dim-Y: #ad2f2f;
+  --dim-DP: #00695f;
+  --dim-TP: #ad2f2f;
   --dim-L: #52514e;
   --dim-N: #0b0b0b;
   --dim-C: #52514e;
   --dim-W: #52514e;
-  --dim-Z: #00695f;
+  --dim-PP: #00695f;
+  --dim-EP: #6d28d9;
   --dim-M: #ad2f2f;
   --dim-E: #6d28d9;
   --dim-k: #0e7a57;
@@ -164,45 +165,6 @@ button.reset {
   transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
 button.reset:hover { color: var(--ink); border-color: var(--axis); }
-/* article-settings dashboard: a labeled strip at the foot of the howto box */
-.article-dash {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem 1.4rem;
-  margin-top: 0.75rem;
-  padding-top: 0.65rem;
-  border-top: 1px solid var(--grid);
-  font-family: var(--sans);
-  font-size: 0.8rem;
-  color: var(--ink-2);
-}
-.article-dash .dash-label {
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-size: 0.68rem;
-  font-weight: 600;
-}
-.article-dash .dash-item { display: inline-flex; align-items: center; gap: 0.45rem; }
-.article-dash .dash-seg { display: inline-flex; }
-.article-dash .dash-opt {
-  font-family: var(--sans);
-  font-size: 0.76rem;
-  color: var(--ink-2);
-  background: var(--page);
-  border: 1px solid var(--grid);
-  padding: 0.12rem 0.6rem;
-  cursor: pointer;
-}
-.article-dash .dash-opt:first-child { border-radius: 999px 0 0 999px; }
-.article-dash .dash-opt:last-child { border-radius: 0 999px 999px 0; border-left: none; }
-.article-dash .dash-opt:hover { color: var(--ink); }
-.article-dash .dash-opt[aria-pressed="true"] {
-  background: var(--ink);
-  color: var(--surface);
-  border-color: var(--ink);
-}
 /* conspicuous when the state has strayed from the defaults — orange, a
    notification color deliberately distinct from the scrub green */
 button.reset.dirty {
@@ -314,20 +276,21 @@ button.t-preset.active { border-color: var(--scrub); color: var(--scrub); }
 .v-D { color: var(--dim-D); }
 .v-F { color: var(--dim-F); }
 .v-L { color: var(--dim-L); }
-.v-X { color: var(--dim-X); }
-.v-Y { color: var(--dim-Y); }
+.v-DP { color: var(--dim-DP); }
+.v-TP { color: var(--dim-TP); }
 .v-N { color: var(--dim-N); }
 .v-C { color: var(--dim-C); }
 .v-W { color: var(--dim-W); }
-.v-Z { color: var(--dim-Z); }
+.v-PP { color: var(--dim-PP); }
+.v-EP { color: var(--dim-EP); }
 .v-M { color: var(--dim-M); }
 .v-E { color: var(--dim-E); }
 .v-k { color: var(--dim-k); }
 
 /* dim hover cross-highlight: core toggles .hl-<dim> on <html> */
-.hl-B .v-B, .hl-D .v-D, .hl-F .v-F, .hl-L .v-L, .hl-X .v-X,
-.hl-Y .v-Y, .hl-N .v-N, .hl-C .v-C, .hl-W .v-W, .hl-Z .v-Z, .hl-M .v-M,
-.hl-E .v-E, .hl-k .v-k {
+.hl-B .v-B, .hl-D .v-D, .hl-F .v-F, .hl-L .v-L, .hl-DP .v-DP,
+.hl-TP .v-TP, .hl-N .v-N, .hl-C .v-C, .hl-W .v-W, .hl-PP .v-PP, .hl-M .v-M,
+.hl-E .v-E, .hl-k .v-k, .hl-EP .v-EP {
   background: rgba(237, 161, 0, 0.28);
 }
 

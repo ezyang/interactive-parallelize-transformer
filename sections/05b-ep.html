@@ -5,7 +5,7 @@
      lines 410–427), MIT license, see page footer /
      LICENSE-scaling-book.txt. Merged into this chapter's flow by this
      adaptation; condensed passages and the one naming change (Chapter
-     12's EP axis "Z" rendered Z_E here) are disclosed in ✦/Δ notes.
+     12's EP axis "Z" rendered EP here) are disclosed in ✦/Δ notes.
      ============================================================ -->
 <section id="expert-parallelism">
   <h2>Expert Parallelism</h2>
@@ -16,9 +16,9 @@
   adaptation; condensed passages are marked. Its cost model is Chapter 12's
   switched GPU fabric (NVLink node + InfiniBand scale-out — see
   <a href="#gpus">the GPU network model</a> below). One naming change
-  throughout: Chapter 12 calls the expert-parallel axis <em>Z</em>, which this
-  page already uses for pipeline stages, so that axis is rendered
-  <i class="v">Z<sub>E</sub></i> here (state key <code>EP</code>).</p>
+  throughout: Chapter 12 calls the expert-parallel axis <em>Z</em>; this
+  edition names every parallelism degree after its scheme, so that axis is
+  rendered <i class="v v-EP">EP</i> here.</p>
 
   <div class="try t-show" data-expr="E==1">You currently have a <strong>dense</strong>
   model loaded (<i class="v">E</i> = <span class="t-out" data-expr="E" data-fmt="int"></span>,
@@ -49,7 +49,7 @@
   activated per token — a weight-to-FLOPs ratio of E/k =
   <span class="t-out" data-expr="E/k" data-fmt="x"></span>.</span></span> We can
   mitigate this somewhat by sharding our weights along the expert dimension, i.e.
-  <span class="shape">W<sub>in</sub>[E<sub>Z<sub>E</sub></sub>, D, F]</span>. To do
+  <span class="shape">W<sub>in</sub>[E<sub>EP</sub>, D, F]</span>. To do
   the MLP block, we need to introduce 2x
   <span class="op op-ag">AllToAll</span> to send our activations to the
   corresponding experts.</p>
@@ -77,9 +77,9 @@
     theoretical speedup in runtime ($B / 4W$ vs. $B / 8W$).”</span></span></span></div>
 
   <p>As noted above, the cost of this
-  AllToAll<sub>Z<sub>E</sub>→k</sub>(<span class="shape">[B, D, k]</span>) if it
+  AllToAll<sub>EP→k</sub>(<span class="shape">[B, D, k]</span>) if it
   spans multiple nodes is roughly
-  <span class="eq-i">T<sub>AllToAll</sub> = 2 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · (Z<sub>E</sub> − 8)/(<i class="v v-W">W</i> · Z<sub>E</sub>) · min(8 · <i class="v">k</i> / Z<sub>E</sub>, 1)</span>,
+  <span class="eq-i">T<sub>AllToAll</sub> = 2 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · (EP − 8)/(<i class="v v-W">W</i> · EP) · min(8 · <i class="v">k</i> / EP, 1)</span>,
   so for pure expert parallelism we
   need<span class="sn edit"><button class="sn-ref" aria-label="edit note">Δ</button><span class="sn-body"><span class="sn-tag">edited</span> The
   chapter reads: <span class="orig">“the cost of this AllToAll<sub>Z-&gt;k</sub>([B, D, k])
@@ -90,21 +90,21 @@
 
   <div class="eq">
     T<sub>math</sub> =
-    <span class="frac"><span>4 · <i class="v v-B">B</i> · <i class="v">k</i> · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span>Z<sub>E</sub> · <i class="v v-C">C</i><span class="sn-post"><span class="sn-tag">adaptation</span> Chapter
+    <span class="frac"><span>4 · <i class="v v-B">B</i> · <i class="v">k</i> · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span>EP · <i class="v v-C">C</i><span class="sn-post"><span class="sn-tag">adaptation</span> Chapter
     12's expression verbatim — its per-expert <i class="v v-F">F</i> is exactly
     <a href="#scaling">this page's convention</a>.</span></span></span>
   </div>
 
   <div class="eq">
     T<sub>comms</sub> =
-    <span class="frac"><span>4 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · (Z<sub>E</sub> − 8)</span><span><i class="v v-W">W</i> · Z<sub>E</sub></span></span>
+    <span class="frac"><span>4 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · (EP − 8)</span><span><i class="v v-W">W</i> · EP</span></span>
     · min<span class="eq-i">(
-    <span class="frac"><span>8 · <i class="v">k</i></span><span>Z<sub>E</sub></span></span>, 1
+    <span class="frac"><span>8 · <i class="v">k</i></span><span>EP</span></span>, 1
     )</span>
   </div>
 
   <div class="eq-live">right now, with
-    <i class="v">Z<sub>E</sub></i> =
+    <i class="v v-EP">EP</i> =
     <span class="t-var" data-var="EP" data-min="1" data-max="1024" data-scale="log" data-snap="pow2" data-fmt="int"></span>-way
     expert parallelism over node egress <i class="v v-W">W</i> =
     <span class="t-out" data-expr="Wdcn*podSize" data-fmt="bw"></span>:
@@ -114,23 +114,23 @@
     <span class="t-out" data-expr="4*B*D*(max(EP-8,0)/EP)*min(8*k/EP,1)/(Wdcn*podSize)" data-fmt="time"></span>
     per layer →
     <span class="t-show inline" data-expr="EP&lt;=8">in-node — AllToAll ≈ free ✓</span><span class="t-show inline" data-expr="EP&gt;8"><span class="t-if" data-expr="4*B*k*D*F/(EP*C) &gt; 4*B*D*(max(EP-8,0)/EP)*min(8*k/EP,1)/(Wdcn*podSize)" data-then="compute-bound ✓" data-else="communication-bound ✗"><span class="sn-post"><span class="sn-tag">adaptation</span> While
-    Z<sub>E</sub> ≤ 8 the AllToAll never leaves the node: the (Z<sub>E</sub> − 8)
+    EP ≤ 8 the AllToAll never leaves the node: the (EP − 8)
     factor vanishes and only the cheap in-node cost from the takeaway above remains,
     so the live T<sub>comms</sub> reads zero. Cross-node costs switch on as you drag
-    Z<sub>E</sub> past a node's worth of GPUs. Try: with DeepSeek-V3 loaded, scrub
-    Z<sub>E</sub> from 8 to 64 to 512 and watch min(8k/Z<sub>E</sub>, 1) start
-    discounting the bill once Z<sub>E</sub> &gt; 8k =
+    EP past a node's worth of GPUs. Try: with DeepSeek-V3 loaded, scrub
+    EP from 8 to 64 to 512 and watch min(8k/EP, 1) start
+    discounting the bill once EP &gt; 8k =
     <span class="t-out" data-expr="8*k" data-fmt="int"></span>.</span></span></span>
   </div>
 
-  <p>We either need <span class="eq-i">K &gt; Z<sub>E</sub>/8</span> with
-  <span class="eq-i"><i class="v v-F">F</i> &gt; α · (Z<sub>E</sub> − 8)/<i class="v">k</i></span>
-  or <span class="eq-i">Z<sub>E</sub> ≫ K</span> and
+  <p>We either need <span class="eq-i">K &gt; EP/8</span> with
+  <span class="eq-i"><i class="v v-F">F</i> &gt; α · (EP − 8)/<i class="v">k</i></span>
+  or <span class="eq-i">EP ≫ K</span> and
   <span class="eq-i"><i class="v v-F">F</i> &gt; 8 · α</span>, where
   <span class="eq-i">α = <i class="v v-C">C</i>/<i class="v v-W">W</i></span>. This
   gives you two domains in which expert parallelism is possible, one with a small
   amount of expert parallelism (roughly 2-node) and small <i class="v v-F">F</i>,
-  or one with large <i class="v v-F">F</i> and Z<sub>E</sub> arbitrarily large (up
+  or one with large <i class="v v-F">F</i> and EP arbitrarily large (up
   to <i class="v">E</i>-way expert
   parallelism).<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> The
   chapter's per-expert <i class="v v-F">F</i> is this page's <i class="v v-F">F</i>,
@@ -142,9 +142,9 @@
     8 · α<sub>node</sub> = 8 · C/W<sub>node</sub> =
     <span class="t-out" data-expr="8*C/(Wdcn*podSize)" data-fmt="si"></span> →
     <span class="t-if" data-expr="F &gt; 8*C/(Wdcn*podSize)" data-then="the large-F domain: expert parallelism can scale far beyond a node" data-else="the small-F domain: keep expert parallelism to roughly 1–2 nodes"></span>;
-    at the current Z<sub>E</sub> =
-    <span class="t-out" data-expr="EP" data-fmt="int"></span>, the small-Z<sub>E</sub>
-    condition F &gt; α · (Z<sub>E</sub> − 8)/k =
+    at the current EP =
+    <span class="t-out" data-expr="EP" data-fmt="int"></span>, the small-EP
+    condition F &gt; α · (EP − 8)/k =
     <span class="t-out" data-expr="C*max(EP-8,0)/(Wdcn*podSize*k)" data-fmt="si"></span>
     is <span class="t-if" data-expr="F &gt; C*max(EP-8,0)/(Wdcn*podSize*k)" data-then="met ✓" data-else="not met ✗"></span>
   </div>

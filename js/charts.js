@@ -6,6 +6,7 @@
    ============================================================ */
 (function () {
   "use strict";
+  const axLabel = (a) => ({ X: "DP", Y: "TP", MX: "M_DP", MY: "M_TP", Z: "PP", MDP: "M_DP", MTP: "M_TP" }[a] || a);
   const SER = Core.SERIES, CHR = Core.CHROME;
   const SVGNS = "http://www.w3.org/2000/svg";
 
@@ -302,13 +303,13 @@
 
     // series definitions, closed over live state at render time
     function seriesFns(S) {
-      const N = Math.max(1, S.X * S.Y);
+      const N = Math.max(1, S.DP * S.TP);
       const tmath = (B) => (4 * B * S.D * S.k * S.F) / (N * S.C);
       const defs = [
         { label: "T_math (compute, all " + Core.fmt(N, "si") + " chips)", color: CHR.ink, dashed: true, fn: tmath, isMath: true },
-        { label: "data parallel / FSDP comms (over " + Core.axisName("MX") + " = " + S.MX + (S.MX > 1 ? " axes)" : " axis)"), color: SER.s1, fn: () => (4 * S.D * S.E * S.F) / (S.Wici * S.MX) },
-        { label: "tensor parallel comms (over " + Core.axisName("MY") + " = " + S.MY + (S.MY > 1 ? " axes)" : " axis)"), color: SER.s2, fn: (B) => (4 * B * S.D) / (S.Wici * S.MY) },
-        { label: "mixed FSDP+TP (best " + Core.axisName("X") + "," + Core.axisName("Y") + ") comms", color: SER.s3, fn: (B) => (4 * S.D / S.Wici) * Math.sqrt((B * S.E * S.F) / (S.MX * S.MY * N)) },
+        { label: "data parallel / FSDP comms (over " + axLabel("MX") + " = " + S.MDP + (S.MDP > 1 ? " axes)" : " axis)"), color: SER.s1, fn: () => (4 * S.D * S.E * S.F) / (S.Wici * S.MDP) },
+        { label: "tensor parallel comms (over " + axLabel("MY") + " = " + S.MTP + (S.MTP > 1 ? " axes)" : " axis)"), color: SER.s2, fn: (B) => (4 * B * S.D) / (S.Wici * S.MTP) },
+        { label: "mixed FSDP+TP (best " + axLabel("X") + "," + axLabel("Y") + ") comms", color: SER.s3, fn: (B) => (4 * S.D / S.Wici) * Math.sqrt((B * S.E * S.F) / (S.MDP * S.MTP * N)) },
       ];
       return { defs, tmath };
     }
@@ -413,8 +414,8 @@
 
       // readout: the verdict at the current B
       const { tmath } = seriesFns(S);
-      const N = Math.max(1, S.X * S.Y);
-      const best = (4 * S.D / S.Wici) * Math.sqrt((S.B * S.E * S.F) / (S.MX * S.MY * N));
+      const N = Math.max(1, S.DP * S.TP);
+      const best = (4 * S.D / S.Wici) * Math.sqrt((S.B * S.E * S.F) / (S.MDP * S.MTP * N));
       const tm = tmath(S.B);
       const ok = fin(tm) && fin(best) && tm >= best;
       readout.textContent = "At B = " + Core.fmt(S.B, "si") + ": T_math " + Core.fmt(tm, "time") +
@@ -456,11 +457,11 @@
     el.appendChild(title); el.appendChild(legend); el.appendChild(chart.svg); el.appendChild(readout);
 
     function fns(S) {
-      const N = Math.max(1, S.X * S.Y);
+      const N = Math.max(1, S.DP * S.TP);
       return {
         N,
-        tfsdp: (x) => (4 * S.D * S.E * S.F * x) / (N * S.Wici * S.MX),
-        ttp: (x) => (4 * S.B * S.D) / (x * S.Wici * S.MY),
+        tfsdp: (x) => (4 * S.D * S.E * S.F * x) / (N * S.Wici * S.MDP),
+        ttp: (x) => (4 * S.B * S.D) / (x * S.Wici * S.MTP),
         tmath: (4 * S.B * S.D * S.k * S.F) / (N * S.C),
       };
     }
@@ -468,8 +469,8 @@
     // drag: capture N at pointerdown so setting X mid-drag can't change the budget
     let nFixed = null;
     const marker = makeVMarker(chart, SCRUB, function (xv, phase) {
-      if (phase === "down") nFixed = Math.max(1, Core.get().X * Core.get().Y);
-      const N = nFixed != null ? nFixed : Math.max(1, Core.get().X * Core.get().Y);
+      if (phase === "down") nFixed = Math.max(1, Core.get().DP * Core.get().TP);
+      const N = nFixed != null ? nFixed : Math.max(1, Core.get().DP * Core.get().TP);
       let x = Math.pow(2, Math.round(Math.log2(Math.max(1, xv))));
       x = Math.min(N, Math.max(1, x));
       x = Math.max(x, N / 8192); // keep Y within its clamp so X·Y stays = N
@@ -483,7 +484,7 @@
       const x = Math.min(f.N, Math.max(1, Math.pow(2, Math.round(Math.log2(Math.max(1, xv))))));
       const a = f.tfsdp(x), b = f.ttp(x);
       return {
-        xLabel: Core.axisName("X") + " = " + Core.fmt(x, "si") + "  (" + Core.axisName("Y") + " = " + Core.fmt(f.N / x, "si") + ")",
+        xLabel: axLabel("X") + " = " + Core.fmt(x, "si") + "  (" + axLabel("Y") + " = " + Core.fmt(f.N / x, "si") + ")",
         rows: [
           { color: SER.s1, label: "T_fsdp", value: Core.fmt(a, "time") },
           { color: SER.s2, label: "T_tp", value: Core.fmt(b, "time") },
@@ -494,7 +495,7 @@
     }, marker.isDragging);
 
     function render(S) {
-      const aX = Core.axisName("X"), aY = Core.axisName("Y");
+      const aX = axLabel("X"), aY = axLabel("Y");
       title.textContent = "Splitting N chips between FSDP (" + aX + ") and tensor parallelism (" + aY + " = N ÷ " + aX + ")";
       legend.innerHTML = "";
       legend.appendChild(legendKey(SER.s1, "T_fsdp — weight comms, grows with " + aX));
@@ -538,8 +539,8 @@
       // T_fsdp < T_math ⇔ E·F·X/(N·MX) < B·k·F/(N·α) ⇔ X < B·MX·k/(α·E)
       chart.layers.wash.innerHTML = "";
       const alpha = S.C / S.Wici;
-      const xLo = Math.max(1, (N * alpha) / (S.k * S.F * S.MY));
-      const xHi = Math.min(X1, (S.B * S.MX * S.k) / (alpha * S.E));
+      const xLo = Math.max(1, (N * alpha) / (S.k * S.F * S.MTP));
+      const xHi = Math.min(X1, (S.B * S.MDP * S.k) / (alpha * S.E));
       if (fin(xLo) && fin(xHi) && xHi > xLo) {
         const px0 = chart.px(xLo), px1 = chart.px(xHi);
         chart.layers.wash.appendChild(h("rect", {
@@ -576,7 +577,7 @@
           "font-size": 10.5, fill: CHR.ink2, "font-weight": 600,
         }, "T_math"));
       }
-      const xOpt = Math.sqrt((S.B * S.MX * N) / (S.E * S.F * S.MY));
+      const xOpt = Math.sqrt((S.B * S.MDP * N) / (S.E * S.F * S.MTP));
       if (fin(xOpt) && xOpt > 1 && xOpt < X1) {
         const vOpt = Math.max(f.tfsdp(xOpt), f.ttp(xOpt));
         const yTop = fin(vOpt) && vOpt > 0 ? Math.max(chart.m.t, Math.min(chart.H - chart.m.b, chart.py(vOpt))) : chart.m.t;
@@ -591,16 +592,16 @@
       }
 
       // marker at current X
-      const xNow = Math.min(X1, Math.max(1, S.X));
-      marker.setX(xNow, aX + " = " + Core.fmt(S.X, "si") + " · " + aY + " = " + Core.fmt(S.Y, "si"));
+      const xNow = Math.min(X1, Math.max(1, S.DP));
+      marker.setX(xNow, aX + " = " + Core.fmt(S.DP, "si") + " · " + aY + " = " + Core.fmt(S.TP, "si"));
 
       // readout row: X, Y, T_fsdp, T_tp, T_math, verdict pill
-      const a = f.tfsdp(S.X), b = f.ttp(S.X);
+      const a = f.tfsdp(S.DP), b = f.ttp(S.DP);
       const comms = Math.max(a, b);
       const ok = fin(f.tmath) && fin(comms) && f.tmath >= comms;
       readout.textContent = "";
       readout.appendChild(document.createTextNode(
-        aX + " = " + Core.fmt(S.X, "si") + " · " + aY + " = " + Core.fmt(S.Y, "si") +
+        aX + " = " + Core.fmt(S.DP, "si") + " · " + aY + " = " + Core.fmt(S.TP, "si") +
         " · T_fsdp " + Core.fmt(a, "time") + " · T_tp " + Core.fmt(b, "time") +
         " · T_math " + Core.fmt(f.tmath, "time") + "  "));
       const pill = document.createElement("span");

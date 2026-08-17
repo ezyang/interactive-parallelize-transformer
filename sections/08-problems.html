@@ -115,7 +115,7 @@
       be used per device (assume we do gradient checkpointing only after the 3 big
       FFW matrices).</li>
     <li>Can we use mixed FSDP + tensor parallelism? Why or why not? If so, what
-      should <i class="v v-X">X</i> and <i class="v v-Y">Y</i> be? How much memory
+      should <i class="v v-DP">DP</i> and <i class="v v-TP">TP</i> be? How much memory
       will be stored per device? Using only roofline FLOPs estimates and ignoring
       attention, how long will each training step take at
       <span class="t-var" data-var="MFU" data-min="0.05" data-max="1" data-scale="lin" data-step="0.05" data-fmt="pct"></span> MFU?</li>
@@ -206,8 +206,8 @@
         </div>
         <p>We have the rule</p>
         <div class="eq">
-          <i class="v v-X">X</i><sub>opt</sub> =
-          <span class="sqrt"><span><span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-F">F</i></span></span> · <span class="frac"><span><i class="v v-M">M<sub>X</sub></i></span><span><i class="v v-M">M<sub>Y</sub></i></span></span> · <i class="v v-N">N</i></span></span>,
+          <i class="v v-DP">DP</i><sub>opt</sub> =
+          <span class="sqrt"><span><span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-F">F</i></span></span> · <span class="frac"><span><i class="v v-M">M<sub>DP</sub></i></span><span><i class="v v-M">M<sub>TP</sub></i></span></span> · <i class="v v-N">N</i></span></span>,
         </div>
         <p>so here we have
         sqrt(3e6 · 2 · 4096 / <span class="t-out" data-expr="pF" data-fmt="int"></span>) =
@@ -237,7 +237,7 @@
     <span class="t-var" data-var="pF" data-min="512" data-max="131072" data-scale="log" data-fmt="int"></span>
     down. A skinnier MLP raises the mixed-scheme threshold α²/2<i class="v v-F">F</i>
     (tensor parallelism has less <i class="v v-F">F</i> to hide behind) <em>and</em>
-    shifts <i class="v v-X">X</i><sub>opt</sub> — watch the verdict pill flip when
+    shifts <i class="v v-DP">DP</i><sub>opt</sub> — watch the verdict pill flip when
     the model gets too narrow for even the mixed scheme to save this small
     batch.</span></span></p>
 </section>
@@ -254,8 +254,8 @@
   <p>This follows fairly naturally from the rule in the previous section for a
   single matmul <span class="shape">Y = X · A</span>:<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
   In this appendix X and Y are the input and output <em>matrices</em> of a generic
-  matmul — not the mesh axes — so they are left out of the axis-notation
-  toggle.</span></span></p>
+  matmul — the chapter's letters, kept as-is since this edition's mesh axes go by
+  <i class="v v-DP">DP</i> and <i class="v v-TP">TP</i>, so nothing collides.</span></span></p>
 
   <div class="eq">
     <span class="frac"><span>dL</span><span>dA</span></span> =

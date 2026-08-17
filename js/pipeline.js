@@ -224,7 +224,7 @@
     function render(S) {
       for (const m of MODES) btns[m.id].setAttribute("aria-pressed", m.id === mode ? "true" : "false");
 
-      const Z = Math.max(1, Math.round(S.Z));
+      const Z = Math.max(1, Math.round(S.PP));
       const M = Math.max(1, Math.round(S.Mmicro));
 
       // readouts ALWAYS from the true schedule

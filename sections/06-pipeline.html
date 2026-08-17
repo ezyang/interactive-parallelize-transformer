@@ -14,15 +14,15 @@
   pipeline stages during the forward and backward pass.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> On
   this page the split is live: with <i class="v v-L">L</i> =
   <span class="t-out" data-expr="L" data-fmt="int"></span> layers over
-  <i class="v v-Z">Z</i> = <span class="t-out" data-expr="Z" data-fmt="int"></span>
+  <i class="v v-PP">PP</i> = <span class="t-out" data-expr="PP" data-fmt="int"></span>
   pipeline stages (scrubbable below), each device owns about
-  <span class="t-out" data-expr="ceil(L/Z)" data-fmt="int"></span> consecutive
+  <span class="t-out" data-expr="ceil(L/PP)" data-fmt="int"></span> consecutive
   layers.</span></span> The algorithm is something like:</p>
 
   <div class="algorithm">
     <ol>
       <li>Initialize your data on TPU 0 with your weights sharded across the layer
-        dimension (<span class="shape">W<sub>in</sub>[L<sub>Z</sub>, D<sub>X</sub>, F<sub>Y</sub>]</span>
+        dimension (<span class="shape">W<sub>in</sub>[L<sub>PP</sub>, D<sub>DP</sub>, F<sub>TP</sub>]</span>
         for pipelining with FSDP and tensor parallelism).</li>
       <li>Perform the first layer on TPU 0, then copy the resulting activations to
         TPU 1, and repeat until you get to the last TPU.</li>
@@ -94,8 +94,8 @@ for i in range(num_layers - 1, -1, -1):
     T<sub>hop</sub> = 2·<i class="v v-D">D</i>·(<i class="v v-B">B</i>/<i class="v v-M">M<sub>micro</sub></i>) ÷ <i class="v v-W">W<sub>ici</sub></i> =
     <span class="t-out" data-expr="2*D*(B/Mmicro)/Wici" data-fmt="time"></span>
     vs one stage's compute
-    <span class="t-out" data-expr="4*(B/Mmicro)*D*k*F*ceil(L/Z)/C" data-fmt="time"></span> →
-    <span class="t-if" data-expr="2*D*(B/Mmicro)/Wici &lt; 4*(B/Mmicro)*D*k*F*ceil(L/Z)/C" data-then="hop hides under the stage clock ✓" data-else="hop exposed ✗"></span><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Try:
+    <span class="t-out" data-expr="4*(B/Mmicro)*D*k*F*ceil(L/PP)/C" data-fmt="time"></span> →
+    <span class="t-if" data-expr="2*D*(B/Mmicro)/Wici &lt; 4*(B/Mmicro)*D*k*F*ceil(L/PP)/C" data-then="hop hides under the stage clock ✓" data-else="hop exposed ✗"></span><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Try:
     this check passes with room to spare — slash
     <i class="v v-W">W<sub>ici</sub></i> =
     <span class="t-var" data-var="Wici" data-min="1e10" data-max="2e12" data-scale="log" data-fmt="bw"></span>
@@ -112,8 +112,8 @@ for i in range(num_layers - 1, -1, -1):
   <i class="v v-M">M<sub>micro</sub></i> =
   <span class="t-var" data-var="Mmicro" data-min="1" data-max="64" data-scale="lin" data-snap="int" data-fmt="int"></span>
   small batches through the
-  <i class="v v-Z">Z</i> =
-  <span class="t-var" data-var="Z" data-min="1" data-max="32" data-scale="lin" data-snap="int" data-fmt="int"></span>-stage
+  <i class="v v-PP">PP</i> =
+  <span class="t-var" data-var="PP" data-min="1" data-max="32" data-scale="lin" data-snap="int" data-fmt="int"></span>-stage
   pipeline, keeping TPU 0 utilized for at least a larger fraction of the total step
   time.<span class="sn edit"><button class="sn-ref" aria-label="edit note">Δ</button><span class="sn-body"><span class="sn-tag">edited</span> The
   chapter reads: <span class="orig">“Typically we try to mitigate this first with
@@ -129,18 +129,18 @@ for i in range(num_layers - 1, -1, -1):
 
   <div class="eq">
     bubble fraction =
-    <span class="frac"><span><i class="v v-Z">Z</i> − 1</span><span><i class="v v-M">M<sub>micro</sub></i> + <i class="v v-Z">Z</i> − 1</span></span>
+    <span class="frac"><span><i class="v v-PP">PP</i> − 1</span><span><i class="v v-M">M<sub>micro</sub></i> + <i class="v v-PP">PP</i> − 1</span></span>
   </div>
   <div class="eq-live">right now:
-    <span class="t-out" data-expr="Z-1" data-fmt="int"></span> /
-    <span class="t-out" data-expr="Mmicro+Z-1" data-fmt="int"></span> =
-    <span class="t-out" data-expr="(Z-1)/(Mmicro+Z-1)" data-fmt="pct"></span> idle →
-    per-device utilization <span class="t-out" data-expr="Mmicro/(Mmicro+Z-1)" data-fmt="pct"></span><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Try:
+    <span class="t-out" data-expr="PP-1" data-fmt="int"></span> /
+    <span class="t-out" data-expr="Mmicro+PP-1" data-fmt="int"></span> =
+    <span class="t-out" data-expr="(PP-1)/(Mmicro+PP-1)" data-fmt="pct"></span> idle →
+    per-device utilization <span class="t-out" data-expr="Mmicro/(Mmicro+PP-1)" data-fmt="pct"></span><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Try:
     drag <i class="v v-M">M<sub>micro</sub></i> down to 1 — the worst case, where each
     device touches the batch exactly once and the bubble hits
-    <span class="t-out" data-expr="(Z-1)/(Z)" data-fmt="pct"></span> — then crank it
+    <span class="t-out" data-expr="(PP-1)/(PP)" data-fmt="pct"></span> — then crank it
     toward 64 and watch the hatched region in the schedule below shrink like
-    (<i class="v v-Z">Z</i>−1)/(<i class="v v-M">M<sub>micro</sub></i>+<i class="v v-Z">Z</i>−1).</span></span>
+    (<i class="v v-PP">PP</i>−1)/(<i class="v v-M">M<sub>micro</sub></i>+<i class="v v-PP">PP</i>−1).</span></span>
   </div>
 
   <div class="t-show" data-expr="gpu">
@@ -242,9 +242,9 @@ for i in range(num_layers - 1, -1, -1):
   </figure>
 
   <div class="preset-row"><span class="preset-label">Try:</span>
-    <button class="t-preset" data-set='{"Z":4,"Mmicro":1}'>no microbatching (worst case)</button>
-    <button class="t-preset" data-set='{"Z":4,"Mmicro":8}'>Z=4, M=8</button>
-    <button class="t-preset" data-set='{"Z":16,"Mmicro":64}'>deep pipeline, M ≫ Z</button>
+    <button class="t-preset" data-set='{"PP":4,"Mmicro":1}'>no microbatching (worst case)</button>
+    <button class="t-preset" data-set='{"PP":4,"Mmicro":8}'>PP=4, M=8</button>
+    <button class="t-preset" data-set='{"PP":16,"Mmicro":64}'>deep pipeline, M ≫ PP</button>
   </div>
 
   <p>Because it is less critical for TPUs (which have larger interconnected pods), we
@@ -253,7 +253,7 @@ for i in range(num_layers - 1, -1, -1):
   condensed picture: pipelining's communication is one activation hop per stage
   boundary, so it thrives on weak interconnects and dominates GPU training; the price
   is the bubble — currently
-  <span class="t-out" data-expr="(Z-1)/(Mmicro+Z-1)" data-fmt="pct"></span> of each
+  <span class="t-out" data-expr="(PP-1)/(Mmicro+PP-1)" data-fmt="pct"></span> of each
   device's time — which microbatching shrinks and careful ∂x/∂W overlap can
   erase.</span></span></p>
 </section>

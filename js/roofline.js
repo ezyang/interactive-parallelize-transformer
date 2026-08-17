@@ -4,6 +4,7 @@
    ============================================================ */
 (function () {
   "use strict";
+  const axLabel = (a) => ({ X: "DP", Y: "TP", MX: "M_DP", MY: "M_TP", Z: "PP", MDP: "M_DP", MTP: "M_TP" }[a] || a);
   const SER = Core.SERIES, CHR = Core.CHROME;
   const SVGNS = "http://www.w3.org/2000/svg";
 
@@ -81,17 +82,17 @@
       // per-layer forward-pass times, per SPEC physics
       if (mode === "weights") {
         return {
-          tm: (4 * S.B * S.D * (S.k * S.F)) / (S.X * S.C),
-          tc: (4 * S.D * (S.E * S.F)) / (S.Wici * S.MX),
+          tm: (4 * S.B * S.D * (S.k * S.F)) / (S.DP * S.C),
+          tc: (4 * S.D * (S.E * S.F)) / (S.Wici * S.MDP),
           moved: "the layer's weights (2·D·" + (S.E > 1 ? "E·" : "") + "F bytes ×2 gathers)",
-          who: "FSDP over " + Core.axisName("X") + "=" + Core.fmt(S.X, "int") + " chips",
+          who: "FSDP over " + axLabel("X") + "=" + Core.fmt(S.DP, "int") + " chips",
         };
       }
       return {
-        tm: (4 * S.B * S.D * (S.k * S.F)) / (S.Y * S.C),
-        tc: (4 * S.B * S.D) / (S.Wici * S.MY),
+        tm: (4 * S.B * S.D * (S.k * S.F)) / (S.TP * S.C),
+        tc: (4 * S.B * S.D) / (S.Wici * S.MTP),
         moved: "the layer's activations (2·B·D bytes ×2 collectives)",
-        who: "TP over " + Core.axisName("Y") + "=" + Core.fmt(S.Y, "int") + " chips",
+        who: "TP over " + axLabel("Y") + "=" + Core.fmt(S.TP, "int") + " chips",
       };
     }
 
@@ -246,7 +247,7 @@
       const sx = ((clientX - rect.left) / rect.width) * W;
       const b = clampDom(fromPx(sx), X0, X1);
       const S = Core.get();
-      const Xfix = draggingXfix != null ? draggingXfix : S.X;
+      const Xfix = draggingXfix != null ? draggingXfix : S.DP;
       // snap B to 1-2-5 grid
       const exp = Math.floor(Math.log10(b * Xfix));
       const base = Math.pow(10, exp);
@@ -255,7 +256,7 @@
       Core.set({ B: nice * base });
     }
     dotHit.addEventListener("pointerdown", (ev) => {
-      draggingXfix = Core.get().X;
+      draggingXfix = Core.get().DP;
       dotHit.setPointerCapture(ev.pointerId);
       ev.preventDefault();
     });
@@ -292,9 +293,9 @@
       if (sx < m.l || sx > W - m.r) { hideTip(); return; }
       const b = fromPx(sx);
       const S = Core.get();
-      const bstar = (S.E / S.k) * (S.C / S.Wici) / S.MX;
+      const bstar = (S.E / S.k) * (S.C / S.Wici) / S.MDP;
       const uW = Math.min(1, b / bstar);
-      const uTP = Math.min(1, (S.k * S.F * S.MY) / (S.Y * (S.C / S.Wici)));
+      const uTP = Math.min(1, (S.k * S.F * S.MTP) / (S.TP * (S.C / S.Wici)));
       hair.setAttribute("x1", sx); hair.setAttribute("x2", sx);
       hair.setAttribute("visibility", "visible");
       tip.textContent = "";
@@ -313,11 +314,11 @@
     window.addEventListener("scroll", hideTip, { passive: true, capture: true });
 
     function render(S) {
-      xAxisLabel.textContent = "tokens per chip per step  (B ÷ " + Core.axisName("X") + ")";
+      xAxisLabel.textContent = "tokens per chip per step  (B ÷ " + axLabel("X") + ")";
       // ridge point for weight-moving schemes: weights are E·F wide, math only k·F
-      const bstar = (S.E / S.k) * (S.C / S.Wici) / S.MX;
-      const uTP = Math.min(1, (S.k * S.F * S.MY) / (S.Y * (S.C / S.Wici)));  // TP utilization, flat in b
-      const bNow = S.B / S.X;
+      const bstar = (S.E / S.k) * (S.C / S.Wici) / S.MDP;
+      const uTP = Math.min(1, (S.k * S.F * S.MTP) / (S.TP * (S.C / S.Wici)));  // TP utilization, flat in b
+      const bNow = S.B / S.DP;
 
       // washes: bandwidth-bound region left of ridge
       gWash.innerHTML = "";
@@ -348,7 +349,7 @@
           (S.E > 1 ? "ridge: (E/k)·C ÷ (W·M) = " : "ridge: C ÷ (W·M) = ") + Core.fmt(bstar, "int")));
       }
       gAnno.appendChild(h("text", { x: W - m.r - 4, y: py(uTPc) - 6, "text-anchor": "end", "font-size": 11, fill: CHR.ink2 },
-        "TP at " + Core.axisName("Y") + "=" + Core.fmt(S.Y, "int") + (uTP >= 1 ? " (fully hidden)" : "")));
+        "TP at " + axLabel("Y") + "=" + Core.fmt(S.TP, "int") + (uTP >= 1 ? " (fully hidden)" : "")));
       const zx = clampDom(px(Math.sqrt(Math.max(X0, Math.min(bstar, X1)) * X0)), m.l + 40, W - m.r);
       gAnno.appendChild(h("text", { x: zx, y: H - m.b - 10, "text-anchor": "middle", "font-size": 10.5, fill: "#8f2222" }, "network-starved"));
 
@@ -366,7 +367,7 @@
 
       readout.textContent =
         "Ridge point " + Core.fmt(bstar, "int") + " tokens/chip (C=" + Core.fmt(S.C, "flops") +
-        " ÷ W=" + Core.fmt(S.Wici * S.MX, "bw") + " over " + S.MX + (S.MX > 1 ? " axes" : " axis") +
+        " ÷ W=" + Core.fmt(S.Wici * S.MDP, "bw") + " over " + S.MDP + (S.MDP > 1 ? " axes" : " axis") +
         (S.E > 1 ? ", ×E/k = " + Core.fmt(S.E / S.k, "sig3") + " because MoE moves E·F-wide weights against k·F-wide math" : "") +
         "). Right of it, weight-moving comms hide under compute; left of it, the network starves the MXU.";
     }

@@ -115,3 +115,6 @@ Fable never writes to this file. Append items below; delete old ones whenever
 
 - For the model that's selected, its row should turn into the green variables
   we can scrub.
+
+- nit: Reset resets the model selector and hardware, but actually those should
+  stick (and it's the numbers only it should reset)

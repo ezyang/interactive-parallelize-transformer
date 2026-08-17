@@ -6,6 +6,7 @@
    ============================================================ */
 (function () {
   "use strict";
+  const axLabel = (a) => ({ X: "DP", Y: "TP", MX: "M_DP", MY: "M_TP", Z: "PP", MDP: "M_DP", MTP: "M_TP" }[a] || a);
   const SER = Core.SERIES, CHR = Core.CHROME;
   const SVGNS = "http://www.w3.org/2000/svg";
   const CHIP_COLORS = [SER.s1, SER.s2, SER.s3, SER.s4, SER.s5, SER.s6, SER.s7, SER.s8];
@@ -48,7 +49,7 @@
     el.innerHTML = "";
     const op = opts.op || "allreduce";
     const bytesExpr = opts.bytesExpr || "2*D*F";
-    const axisVar = opts.axisVar || "MX";
+    const axisVar = opts.axisVar || "MDP";
     const k = op === "allreduce" || op === "ar-decomp" ? 2 : 1;
     const phases = op === "allgather" ? ["ag"] : op === "reducescatter" ? ["rs"] : ["rs", "ag"];
     const NC = 8, HOPS = NC / 2;
@@ -295,7 +296,7 @@
       readout.textContent =
         "bytes = " + bytesExpr.replace(/\*/g, "·") + " = " + Core.fmt(bytes, "bytes") +
         " · over M = " + Core.fmt(M, "int") + (M > 1 ? " ICI axes" : " ICI axis") +
-        " · T = " + k + "·bytes ÷ (Wici·" + Core.axisName(axisVar) + ") = " + Core.fmt(time, "time");
+        " · T = " + k + "·bytes ÷ (Wici·" + axLabel(axisVar) + ") = " + Core.fmt(time, "time");
       if (arTime) {
         arTime.textContent = "AllReduce · " + Core.fmt(time, "time");
         rsTime.textContent = "ReduceScatter · " + Core.fmt(time / 2, "time");
@@ -370,7 +371,7 @@
     }
 
     function render(S) {
-      const N = S.X * S.Y;
+      const N = S.DP * S.TP;
       const K = Math.max(1, Math.ceil(N / S.podSize));
       const alphaDcn = (S.E / S.k) * S.C / S.Wdcn; // per-expert F convention: MoE weights inflate the DCN ridge by E/k
       const perPod = S.B / K;

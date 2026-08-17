@@ -39,18 +39,18 @@ Variables, defaults, meaning (all plain numbers):
 | F | 28672 | d_ff |
 | L | 80 | layers |
 | B | 2e6 | global batch, tokens |
-| X | 512 | shards of data/FSDP parallelism |
-| Y | 8 | shards of tensor parallelism |
-| MX | 2 | mesh axes carrying X |
-| MY | 1 | mesh axes carrying Y |
-| Z | 4 | pipeline stages |
+| DP | 512 | shards of data/FSDP parallelism (the chapter's X) |
+| TP | 8 | shards of tensor parallelism (the chapter's Y) |
+| MDP | 2 | mesh axes carrying DP (the chapter's M_X) |
+| MTP | 1 | mesh axes carrying TP (the chapter's M_Y) |
+| PP | 4 | pipeline stages (the pipelining section's Z) |
 | Mmicro | 8 | microbatches |
 | MFU | 0.4 | assumed model FLOPs utilization for wall-clock estimates |
 | podSize | 8960 | chips per ICI domain (pod: a full TPU v5p SuperPod; the NVLink domain under GPU presets) |
 | gpu | 0 | 0 = TPU-style mesh, 1 = GPU switched fabric (set by hardware presets) |
 | E | 1 | MoE: routed experts per layer (1 = dense); set by model presets |
 | k | 1 | MoE: experts activated per token (routed top-k; shared experts are folded into F, not k) |
-| EP | 8 | expert-parallel degree (chapter-12 calls this axis Z; we rename to avoid the pipeline-stage Z) |
+| EP | 8 | expert-parallel degree (chapter-12 calls this axis Z) |
 
 ### HARDWARE EPIC (staged; SOURCES.md is ground truth once it exists)
 ① SOURCES.md: every hardware number the page uses — spec AND measured — with a
@@ -75,24 +75,24 @@ Variables, defaults, meaning (all plain numbers):
    Sentences that cannot survive word-swap become t-show variant pairs, with
    chapter-12 text supplying GPU variants where it has them.
 
-### AXIS-NOTATION TOGGLE (rendering-layer only)
-The chapter names its mesh axes X (data/FSDP) and Y (tensor parallelism); this
-page renders them **DP** and **TP** by default, with a machine-bar toggle back
-to the chapter's X/Y. Rules:
-- State key `nota` (0 = DP/TP default, 1 = chapter X/Y). INTERNAL NAMES NEVER
-  CHANGE: state keys stay X/Y, every data-expr stays X/Y, URL hashes stay X/Y.
-- `Core.axisName("X"|"Y"|"MX"|"MY")` returns the display name for the current
-  mode ("DP"/"TP"/"M_DP"/"M_TP" or "X"/"Y"/"M_X"/"M_Y"). All widget-generated
-  labels/readouts/flags MUST use it (widgets re-render on toggle automatically
-  since nota is state).
-- In HTML: `.v.v-X`/`.v-Y` tokens and `<sub>` elements whose text is exactly
-  X or Y inside `.shape`/`.eq` contexts are re-rendered by core on toggle
-  (core tags them at boot). Bare X/Y mentions in chapter prose must be wrapped
-  as `.v` tokens so the toggle is complete — mixed notation is a defect.
-- M_X/M_Y tokens: the letter M keeps its token; its <sub>X</sub> swaps like
-  any other subscript.
+### AXIS VARIABLES (renamed for good — the toggle is gone)
+Every parallelism degree is a first-class named variable: **DP** (chapter's X),
+**TP** (chapter's Y), **PP** (the pipelining section's Z), **EP** (chapter 12's
+Z). Mesh multipliers are **MDP**/**MTP** (chapter's M_X/M_Y), displayed
+M_DP/M_TP. Rules:
+- These ARE the state keys — expressions, URL hashes, tokens, and prose all use
+  the same names. There is no display/internal split and no `nota` toggle.
+- Old-URL compatibility: the hash loader aliases X→DP, Y→TP, Z→PP, MX→MDP,
+  MY→MTP.
+- N = DP·TP remains the mixed-sharding chip budget (derived). EP and PP are
+  scheme-scoped variables, NOT extra factors of N — the source never builds a
+  4D mesh and neither do we.
+- The chapter's literal letters survive only where they mean something else:
+  the notation table's third-mesh-axis Z row (live value "—"), M_Z in the
+  multi-axis note, and the appendix's matrix X/Y.
 - Disclosure: one line in the header's convention list (global substitution,
-  chapter notation one toggle away) — no per-site Δ notes.
+  each letter named); the notation table carries .add-marked EP/PP rows and
+  "(the chapter's X/Y)" parentheticals.
 
 ### F-CONVENTION v2 (chapter-12 alignment — supersedes the "activated F" folding)
 The ambiguity ("is F sparse or dense?") is resolved the way chapter 12 resolves it:
@@ -109,17 +109,17 @@ The ambiguity ("is F sparse or dense?") is resolved the way chapter 12 resolves 
   | FLOPs / activation width F (T_math numerators, TP's sharded width, activation memory D+2F) | k·F |
   | weight bytes / weight width F (DP-AllReduce & FSDP-gather comms, param counts) | E·F |
   Consequences (all must reduce to the dense form at E=k=1):
-  T_math = 4·B·D·k·F/(shards·C) fwd (8·… bwd); DP/FSDP T_comms = 4·D·E·F/(W·MX) fwd
-  (8·… bwd); DP/FSDP bound B/X > (E/k)·α/MX; TP bound Y < MY·k·F/α; mixed
-  T_fsdp = 4·D·E·F/(Y·W·MX), T_tp unchanged, X_opt = √(B·MX·N/(E·F·MY)), floor
-  B/N > α²·E/(MX·MY·k²·F); P (param count) = 2·D·E·F·L; activation memory
+  T_math = 4·B·D·k·F/(shards·C) fwd (8·… bwd); DP/FSDP T_comms = 4·D·E·F/(W·MDP) fwd
+  (8·… bwd); DP/FSDP bound B/DP > (E/k)·α/MDP; TP bound TP < MTP·k·F/α; mixed
+  T_fsdp = 4·D·E·F/(TP·W·MDP), T_tp unchanged, X_opt = √(B·MDP·N/(E·F·MTP)), floor
+  B/N > α²·E/(MDP·MTP·k²·F); P (param count) = 2·D·E·F·L; activation memory
   2·L·B·(D+2·k·F); pipeline hop unchanged (2·B·D/Mmicro); pipeline stage compute
-  4·(B/Mmicro)·D·k·F·ceil(L/Z)/C; EP exactly chapter-12's: T_math = 4·B·k·D·F/(EP·C).
+  4·(B/Mmicro)·D·k·F·ceil(L/PP)/C; EP exactly chapter-12's: T_math = 4·B·k·D·F/(EP·C).
 - Model-table presets store per-expert F (e.g. DeepSeek-V3 {D:7168, F:2048, L:61,
   E:257, k:9}; Kimi K3 {7168, 3072, 93, 898, 18}; GLM-5.2 {6144, 2048, 78, 257, 9};
   DSv4-Pro {7168, 3072, 61, 385, 7}; Qwen3.8 {8192, 2048, 92, 513, 11}; Inkling
   {6144, 3072, 66, 258, 8}; MiniMax-M3 {6144, 3072, 60, 129, 5}).
-- **MoE data-parallelism penalty** (now exact): B/X > (E/k)·C/W_collective.
+- **MoE data-parallelism penalty** (now exact): B/DP > (E/k)·C/W_collective.
 - **Expert parallelism** (shard experts EP ways, AllToAll activations to their experts and back):
   T_math = 4·B·D·F/(EP·C). GPU cross-node AllToAll (chapter 12):
   T_comms = 4·B·D·((EP−8)/EP)·min(8·k/EP, 1)/Wdcn·podSize-form — use chapter-12's exact expressions;
@@ -149,7 +149,7 @@ material that is genuinely new gets its own place in the flow:
 | pB | 16e6 | problems: batch tokens |
 
 Derived values available in every expression (recomputed each change):
-`N` (=X*Y), `alpha` (=C/Wici), `alphaDcn` (=C/Wdcn), `P` (=2*D*F*L, MLP-stack param
+`N` (=DP*TP), `alpha` (=C/Wici), `alphaDcn` (=C/Wdcn), `P` (=2*D*F*L, MLP-stack param
 count), plus all of `Math` (sqrt, min, max, pow, log2, ceil, floor, round, abs, PI, exp, log10).
 
 ### Core API (js/core.js — already implemented)
@@ -163,7 +163,7 @@ count), plus all of `Math` (sqrt, min, max, pow, log2, ceil, floor, round, abs, 
   `bytes` 42.0 TB · `e` 4.6e14 · `flops` 459 TFLOP/s · `bw` 180 GB/s ·
   `time` auto ns/µs/ms/s/min/hr/days · `days` 17.3 days · `pct` 38% · `x` 3.2× ·
   `tokens` same as si · `chips` same as int.
-- `Core.onDimHover(fn)` → fn(dimOrNull) when a dimension token (B/D/F/X/Y/L/C/W/N) is
+- `Core.onDimHover(fn)` → fn(dimOrNull) when a dimension token (B/D/F/DP/TP/L/C/W/N) is
   hovered anywhere; widgets may highlight matching parts. Fire your own via
   `Core.dimHover('B')` / `Core.dimHover(null)`.
 - `Widgets.register(name, factory)` where `factory(el, opts)` returns
@@ -177,10 +177,10 @@ count), plus all of `Math` (sqrt, min, max, pow, log2, ceil, floor, round, abs, 
   Optional `data-scale="log"|"lin"`, `data-snap="pow2"|"125"|"int"`, `data-step="1"`.
   Core renders the value, drag left/right to change, double-click resets that var,
   keyboard arrows work. NEVER put text inside; core owns the content.
-- **Derived number** (blue): `<span class="t-out" data-expr="8*D*F/(Wici*MX)" data-fmt="time"></span>`
-- **Conditional text**: `<span class="t-if" data-expr="B/X > alpha/MX" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>`
+- **Derived number** (blue): `<span class="t-out" data-expr="8*D*F/(Wici*MDP)" data-fmt="time"></span>`
+- **Conditional text**: `<span class="t-if" data-expr="B/DP > alpha/MDP" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>`
   (also gets class `t-if-true`/`t-if-false` for green/red styling).
-- **Conditional block**: `<div class="t-show" data-expr="Y > MY*F/alpha">…</div>` (hidden unless truthy).
+- **Conditional block**: `<div class="t-show" data-expr="TP > MTP*F/alpha">…</div>` (hidden unless truthy).
 - **Preset button**: `<button class="t-preset" data-set='{"D":8192,"F":28672,"L":80}'>LLaMA-3 70B</button>`
   Rows of presets: `<div class="preset-row"><span class="preset-label">Try:</span> …buttons…</div>`
 - **Widget mount**: `<div class="widget" data-widget="roofline-chart" data-opts='{}'></div>`
@@ -189,11 +189,11 @@ count), plus all of `Math` (sqrt, min, max, pow, log2, ceil, floor, round, abs, 
 ### Formula markup (no LaTeX — hand-rolled reactive HTML)
 
 - Display equation: `<div class="eq"> … </div>`; inline: `<span class="eq-i">…</span>`.
-- Variable token: `<i class="v v-B">B</i>` — classes exist for v-B v-D v-F v-L v-X v-Y v-N v-C v-W v-Z v-M (W covers Wici/Wdcn, M covers MX/MY). Tokens are auto-wired for dim-hover cross-highlighting by core. Subscripts: `<i class="v v-W">W<sub>ici</sub></i>`.
+- Variable token: `<i class="v v-B">B</i>` — classes exist for v-B v-D v-F v-L v-DP v-TP v-N v-C v-W v-PP v-EP v-M (W covers Wici/Wdcn, M covers MX/MY). Tokens are auto-wired for dim-hover cross-highlighting by core. Subscripts: `<i class="v v-W">W<sub>ici</sub></i>`.
 - Fraction: `<span class="frac"><span>numerator</span><span>denominator</span></span>`
 - Square root: `<span class="sqrt"><span>radicand</span></span>`
 - Operators: use `·` for times, `→` for produces, plain `&gt;` `&lt;` `=` `≈`.
-- Shape/einsum notation: `<span class="shape">In[B<sub>X</sub>, D]</span>` (monospace-ish styling).
+- Shape/einsum notation: `<span class="shape">In[B<sub>DP</sub>, D]</span>` (monospace-ish styling).
 - Live evaluation line under an equation:
   `<div class="eq-live">right now: <span class="t-out" data-expr="…" data-fmt="time"></span> vs <span class="t-out" data-expr="…" data-fmt="time"></span> → <span class="t-if" data-expr="…" data-then="compute-bound" data-else="comms-bound"></span></div>`
 
@@ -217,7 +217,7 @@ CSS custom props already defined in style.css:
 - Categorical series slots IN THIS ORDER (never re-order, never cycle):
   `--s1:#2a78d6` (blue) `--s2:#eb6834` (orange) `--s3:#1baf7a` (aqua) `--s4:#eda100` (yellow) `--s5:#e87ba4` (magenta) `--s6:#008300` `--s7:#4a3aa7` `--s8:#e34948`
 - Scrubbable green `--scrub:#006300`; derived blue `--derived:#1c5cab`.
-- Dimension token colors: `--dim-B:#4a3aa7 --dim-D:#1c5cab --dim-F:#9a4a00 --dim-X:#00695f --dim-Y:#ad2f2f --dim-L:#52514e --dim-N:#0b0b0b --dim-C:#52514e --dim-W:#52514e --dim-Z:#00695f --dim-M:#ad2f2f`
+- Dimension token colors: `--dim-B:#4a3aa7 --dim-D:#1c5cab --dim-F:#9a4a00 --dim-DP:#00695f --dim-TP:#ad2f2f --dim-L:#52514e --dim-N:#0b0b0b --dim-C:#52514e --dim-W:#52514e --dim-Z:#00695f --dim-M:#ad2f2f`
 
 Series → meaning assignment (consistent across ALL charts):
 - FLOPs / T_math reference line: ink `#0b0b0b`, dashed 2px.
@@ -232,15 +232,15 @@ Chart chrome rules (binding): 2px lines round cap; hairline solid gridlines in `
 ## Physics (the model — every widget/section uses EXACTLY these, per-layer, bf16)
 
 - alpha = C/Wici (= 2550 at defaults). alphaDcn = C/Wdcn (= 73,440).
-- **DP** (backward pass): Tmath = 8·B·D·F/(X·C); Tcomms = 8·D·F/(Wici·MX). Compute-bound iff B/X > alpha/MX.
-- **FSDP** (forward pass modeled): Tmath = 4·B·D·F/(X·C); Tcomms = 4·D·F/(Wici·MX). Same bound.
-- **TP** (forward): Tmath = 4·B·D·F/(Y·C); Tcomms = 4·B·D/(Wici·MY). Compute-bound iff F > Y·alpha/MY, i.e. Ymax = MY·F/alpha.
-- **Mixed FSDP+TP** (forward, N=X·Y): Tmath = 4·B·D·F/(N·C); Tfsdp = 4·D·F/(Y·Wici·MX); Ttp = 4·B·D/(X·Wici·MY); Tcomms = max(Tfsdp, Ttp). Xopt = sqrt(B·MX·N/(F·MY)). Compute-bound iff B/N > alpha²/(MX·MY·F).
+- **DP** (backward pass): Tmath = 8·B·D·F/(DP·C); Tcomms = 8·D·F/(Wici·MDP). Compute-bound iff B/DP > alpha/MDP.
+- **FSDP** (forward pass modeled): Tmath = 4·B·D·F/(DP·C); Tcomms = 4·D·F/(Wici·MDP). Same bound.
+- **TP** (forward): Tmath = 4·B·D·F/(TP·C); Tcomms = 4·B·D/(Wici·MTP). Compute-bound iff F > TP·alpha/MTP, i.e. Ymax = MTP·F/alpha.
+- **Mixed FSDP+TP** (forward, N=DP·TP): Tmath = 4·B·D·F/(N·C); Tfsdp = 4·D·F/(TP·Wici·MDP); Ttp = 4·B·D/(DP·Wici·MTP); Tcomms = max(Tfsdp, Ttp). Xopt = sqrt(B·MDP·N/(F·MTP)). Compute-bound iff B/N > alpha²/(MDP·MTP·F).
 - **DCN cross-pod DP** (backward): Tmath = 8·B·D·F/(N·C); Tcomms = 8·D·F/(podSize·Wdcn). Compute-bound iff B/pod > alphaDcn.
-- **Memory** (per chip, bytes): paramsBytes = 2P, optBytes = 8P (Adam, fp32 m+v); DP: params+opt replicated (÷1), FSDP: ÷X, mixed: ÷N. Checkpointed activations (3 per layer) total = 2·L·B·(D+2F) bytes, sharded ÷X (÷(X·Y) for mixed). Max params with pure DP + Adam = HBM/10.
-- **Pipeline** (GPipe-style, bwd block = 2× fwd width): bubble fraction = (Z−1)/(Mmicro+Z−1); with "1F1B" same bubble but lower activation memory; with "overlap dW/dx" (DeepSeek-like) the widget shows the bubble filled by dW work.
+- **Memory** (per chip, bytes): paramsBytes = 2P, optBytes = 8P (Adam, fp32 m+v); DP: params+opt replicated (÷1), FSDP: ÷DP, mixed: ÷N. Checkpointed activations (3 per layer) total = 2·L·B·(D+2F) bytes, sharded ÷X (÷(X·Y) for mixed). Max params with pure DP + Adam = HBM/10.
+- **Pipeline** (GPipe-style, bwd block = 2× fwd width): bubble fraction = (PP−1)/(Mmicro+PP−1); with "1F1B" same bubble but lower activation memory; with "overlap dW/dx" (DeepSeek-like) the widget shows the bubble filled by dW work.
 - **Wall-clock step time** (for examples): T = 6·B·params/(N·C·MFU) with params from context (use P for MLP-stack, or a stated real-model count).
-- Roofline chart series as functions of B with all-N-chips: Tmath(B)=4·B·D·F/(N·C); FSDP-only comms = 4·D·F/(Wici·MX) const; TP-only comms = 4·B·D/(Wici·MY); mixed-optimal comms = (4·D/Wici)·sqrt(B·F/(MX·MY·N)). All use the live MX/MY so every view shares one model.
+- Roofline chart series as functions of B with all-N-chips: Tmath(B)=4·B·D·F/(N·C); FSDP-only comms = 4·D·F/(Wici·MDP) const; TP-only comms = 4·B·D/(Wici·MTP); mixed-optimal comms = (4·D/Wici)·sqrt(B·F/(MDP·MTP·N)). All use the live MDP/MTP so every view shares one model.
 
 ## Widget contracts (exact names/opts; implementers keep these; sections mount them)
 
@@ -249,15 +249,15 @@ Chart chrome rules (binding): 2px lines round cap; hairline solid gridlines in `
 | `layer-diagram` | `{}` | The simplified transformer layer In[B,D]→W_in[D,F]→W_out[F,D]→Out[B,D] as flow boxes; box edges labeled and proportional to log2 of live dims; hovering a dimension edge fires dimHover. |
 | `scheme-explorer` | `{}` | Tab strip (DP / FSDP / TP / FSDP+TP). For the active scheme: the einsum syntax line, the four arrays drawn with shard grid coloring by chip, per-chip local shapes, and the list of comms ops incurred (fwd + bwd). The overview centerpiece. |
 | `shard-grid` | `{"scheme":"dp"}` (dp/fsdp/tp/mixed) | Section figure: In and W_in (and W_out for tp/mixed) rectangles subdivided among chips (colors = slot order; grid uses min(X,4)×min(Y,2) representative chips with ellipsis affordance), a chip strip below; hover chip ⇄ highlight its shards; captions give logical + local shapes with live numbers. |
-| `collective` | `{"op":"allreduce","bytesExpr":"2*D*F","axisVar":"MX","label":"AllReduce(dW_in)"}` | Ring of 8 chips animating the collective (allgather / reducescatter / allreduce / ar-decomp which shows AllReduce = AG+RS); play/pause + progress scrub; readout of bytes moved and time = (1 or 2)·bytes/(Wici·M). |
+| `collective` | `{"op":"allreduce","bytesExpr":"2*D*F","axisVar":"MDP","label":"AllReduce(dW_in)"}` | Ring of 8 chips animating the collective (allgather / reducescatter / allreduce / ar-decomp which shows AllReduce = AG+RS); play/pause + progress scrub; readout of bytes moved and time = (1 or 2)·bytes/(Wici·M). |
 | `bound-meter` | `{"scheme":"dp"}` (dp/fsdp/tp/mixed/dcn) | Two horizontal bars (T_math vs T_comms per layer, µs) on a shared linear scale, values at bar ends, verdict pill (compute-bound/comms-bound) + headroom ×. Uses Physics formulas above. |
 | `roofline-chart` | `{}` | Log-log chart, x = batch B (1e4..1e9), y = time/layer; series per Physics; draggable vertical marker at current B (drag sets B); view toggle: absolute times ↔ ratio T_math/T_comms; crosshair tooltip. |
-| `xy-explorer` | `{}` | For fixed N: x-axis = X (powers of 2 from max(1,N/Fcap) … N), curves Tfsdp(X) blue, Ttp(X) orange, max() emphasized, Tmath dashed ink; draggable marker on current X (sets X, Y=N/X); Xopt annotated with dotted drop-line; compute-bound region shaded. |
+| `xy-explorer` | `{}` | For fixed N: x-axis = DP (powers of 2 from max(1,N/Fcap) … N), curves Tfsdp(DP) blue, Ttp(DP) orange, max() emphasized, Tmath dashed ink; draggable marker on current DP (sets DP, TP=N/DP); Xopt annotated with dotted drop-line; compute-bound region shaded. |
 | `mem-meter` | `{"scheme":"fsdp"}` | Stacked horizontal bar of per-chip HBM: params / optimizer / activations vs HBM capacity tick; overflow shown in red hatch with "doesn't fit". |
-| `pipeline-schedule` | `{}` | Gantt of devices×time; mode toggle (naive / 1F1B / overlap-dW); scrubbable Z and Mmicro bound to state; bubble % + per-device utilization; legend. |
+| `pipeline-schedule` | `{}` | Gantt of devices×time; mode toggle (naive / 1F1B / overlap-dW); scrubbable PP and Mmicro bound to state; bubble % + per-device utilization; legend. |
 | `pods-diagram` | `{}` | K pods (K = ceil(N/podSize), draw ≤4) each a mini 3D-ish mesh, DCN links between; live check per-pod batch vs alphaDcn; readout. |
 | `overlap-timeline` | `{}` | (js/roofline.js, already written) Two tracks, compute vs network, per-layer times to scale; exposed comms hatched red; toggle weights-move vs activations-move. |
-| `roofline-curve` | `{}` | (js/roofline.js, already written) Log-log network roofline: utilization vs per-chip batch B/X; ridge at alpha/MX; TP flat overlay; draggable operating dot sets B. |
+| `roofline-curve` | `{}` | (js/roofline.js, already written) Log-log network roofline: utilization vs per-chip batch B/DP; ridge at alpha/MX; TP flat overlay; draggable operating dot sets B. |
 
 Widgets must: render entirely inside their `el`; rebuild cheaply on update(S) (ok to
 rerender SVG wholesale, but preserve in-flight drag state); use only palette CSS vars
@@ -336,12 +336,12 @@ Rules:
   e.g. `<span class="t-show inline" data-expr="gpu">…</span>` for GPU-only
   phrases and `data-expr="1-gpu"` for TPU-only ones).
 - Hardware presets (machine bar): H100 {C:9.9e14, Wici:4.5e11, Wdcn:5e10,
-  HBM:8e10, podSize:8, gpu:1, MX:1, MY:1}; B200 same but C:2.25e15, Wici:9e11,
+  HBM:8e10, podSize:8, gpu:1, MDP:1, MTP:1}; B200 same but C:2.25e15, Wici:9e11,
   HBM:1.92e11; GB200 NVL72 same as B200 but podSize:72.
 - The mapping that makes the whole page's math correct on GPUs (per gpus.md):
   read `Wici` as the per-GPU **egress bandwidth** into the NVLink switch fabric
   (450 GB/s H100, 900 GB/s B200); a switched fabric has no mesh axes, so
-  MX = MY = 1; read "pod" as the **NVLink domain** (podSize 8 or 72); read
+  MDP = MTP = 1; read "pod" as the **NVLink domain** (podSize 8 or 72); read
   `Wdcn` as the per-GPU share of node InfiniBand egress (400e9/8 = 5e10 for
   H100/B200; 3600e9/72 = 5e10 for GB200). Then alpha = C/Wici = **2,200** in-node
   (H100) and the cross-node ridge C/Wdcn = 19,800/node = **2,475**/GPU — exactly
