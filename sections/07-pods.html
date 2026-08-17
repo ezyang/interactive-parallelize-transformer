@@ -277,10 +277,10 @@
 
   <div class="preset-row"><span class="preset-label">Hardware:</span>
     <button class="t-preset" data-set='{"C":9.9e14,"Wici":4.5e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MX":1,"MY":1}'>H100</button>
-    <button class="t-preset" data-set='{"C":2.25e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.92e11,"podSize":8,"gpu":1,"MX":1,"MY":1}'>B200</button>
-    <button class="t-preset" data-set='{"C":2.25e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.92e11,"podSize":72,"gpu":1,"MX":1,"MY":1}'>GB200 NVL72</button>
+    <button class="t-preset" data-set='{"C":2.25e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.8e11,"podSize":8,"gpu":1,"MX":1,"MY":1}'>B200</button>
+    <button class="t-preset" data-set='{"C":2.5e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.86e11,"podSize":72,"gpu":1,"MX":1,"MY":1}'>GB200 NVL72</button>
     <button class="t-preset" data-set='{"C":2.5e15,"Wici":9e11,"Wdcn":1e11,"HBM":2.88e11,"podSize":72,"gpu":1,"MX":1,"MY":1}'>GB300 NVL72</button>
-    <button class="t-preset" data-set='{"C":9.9e14,"Wici":3e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MX":1,"MY":1}'>H800 (DeepSeek)</button>
+    <button class="t-preset" data-set='{"C":9.9e14,"Wici":2e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MX":1,"MY":1}'>H800 (DeepSeek)</button>
     <button class="t-preset" data-set='{"C":4.59e14,"Wici":1.8e11,"Wdcn":6.25e9,"HBM":9.6e10,"podSize":8960,"gpu":0,"MX":2,"MY":1}'>back to TPU v5p</button>
   </div>
 
@@ -317,7 +317,13 @@
   at least
   <span class="t-out" data-expr="16000*alphaDcn/podSize" data-fmt="si"></span> tokens
   (for reference, they used 16M). DeepSeek v3 trained on 2048 H800 GPUs with lower
-  300GB/s of bandwidth (instead of 450GB/s on H100) would need
+  300GB/s of bandwidth (instead of 450GB/s on H100)<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body">The
+chapter's 300 GB/s matches neither the H800's spec (400 GB/s bidirectional →
+200 GB/s per direction) nor DeepSeek-V3's own measurement ("NVLink offers a
+bandwidth of 160 GB/s"). This page's H800 preset uses the 200 GB/s spec — so the
+live ridge here reads higher than the chapter's printed 3,300 (which divides by
+the unsourced 300) and higher still than reality (divide by 160). See the
+<a href="#hardware-table">hardware table</a>.</span></span> would need
   <span class="eq-i"><span class="t-out" data-expr="C" data-fmt="e"></span> /
   <span class="t-out" data-expr="Wici" data-fmt="e"></span> =
   <span class="t-out" data-expr="alpha" data-fmt="int"></span></span> tokens per GPU,
