@@ -52,6 +52,25 @@ Variables, defaults, meaning (all plain numbers):
 | k | 1 | MoE: experts activated per token (routed top-k; shared experts are folded into F, not k) |
 | EP | 8 | expert-parallel degree (chapter-12 calls this axis Z; we rename to avoid the pipeline-stage Z) |
 
+### AXIS-NOTATION TOGGLE (rendering-layer only)
+The chapter names its mesh axes X (data/FSDP) and Y (tensor parallelism); this
+page renders them **DP** and **TP** by default, with a machine-bar toggle back
+to the chapter's X/Y. Rules:
+- State key `nota` (0 = DP/TP default, 1 = chapter X/Y). INTERNAL NAMES NEVER
+  CHANGE: state keys stay X/Y, every data-expr stays X/Y, URL hashes stay X/Y.
+- `Core.axisName("X"|"Y"|"MX"|"MY")` returns the display name for the current
+  mode ("DP"/"TP"/"M_DP"/"M_TP" or "X"/"Y"/"M_X"/"M_Y"). All widget-generated
+  labels/readouts/flags MUST use it (widgets re-render on toggle automatically
+  since nota is state).
+- In HTML: `.v.v-X`/`.v-Y` tokens and `<sub>` elements whose text is exactly
+  X or Y inside `.shape`/`.eq` contexts are re-rendered by core on toggle
+  (core tags them at boot). Bare X/Y mentions in chapter prose must be wrapped
+  as `.v` tokens so the toggle is complete — mixed notation is a defect.
+- M_X/M_Y tokens: the letter M keeps its token; its <sub>X</sub> swaps like
+  any other subscript.
+- Disclosure: one line in the header's convention list (global substitution,
+  chapter notation one toggle away) — no per-site Δ notes.
+
 ### F-CONVENTION v2 (chapter-12 alignment — supersedes the "activated F" folding)
 The ambiguity ("is F sparse or dense?") is resolved the way chapter 12 resolves it:
 - **F = the per-expert feed-forward width** (config `moe_intermediate_size`; for a

@@ -84,14 +84,14 @@
           tm: (4 * S.B * S.D * (S.k * S.F)) / (S.X * S.C),
           tc: (4 * S.D * (S.E * S.F)) / (S.Wici * S.MX),
           moved: "the layer's weights (2·D·" + (S.E > 1 ? "E·" : "") + "F bytes ×2 gathers)",
-          who: "FSDP over X=" + Core.fmt(S.X, "int") + " chips",
+          who: "FSDP over " + Core.axisName("X") + "=" + Core.fmt(S.X, "int") + " chips",
         };
       }
       return {
         tm: (4 * S.B * S.D * (S.k * S.F)) / (S.Y * S.C),
         tc: (4 * S.B * S.D) / (S.Wici * S.MY),
         moved: "the layer's activations (2·B·D bytes ×2 collectives)",
-        who: "TP over Y=" + Core.fmt(S.Y, "int") + " chips",
+        who: "TP over " + Core.axisName("Y") + "=" + Core.fmt(S.Y, "int") + " chips",
       };
     }
 
@@ -234,8 +234,8 @@
       gGrid.appendChild(h("text", { x: m.l - 8, y: py(u) + 4, "text-anchor": "end", "font-size": 11, fill: CHR.muted }, (u * 100) + "%"));
     }
     gGrid.appendChild(h("line", { x1: m.l, y1: H - m.b, x2: W - m.r, y2: H - m.b, stroke: CHR.axis, "stroke-width": 1 }));
-    gGrid.appendChild(h("text", { x: (m.l + W - m.r) / 2, y: H - 8, "text-anchor": "middle", "font-size": 11.5, fill: CHR.ink2 },
-      "tokens per chip per step  (B ÷ X)"));
+    const xAxisLabel = h("text", { x: (m.l + W - m.r) / 2, y: H - 8, "text-anchor": "middle", "font-size": 11.5, fill: CHR.ink2 });
+    gGrid.appendChild(xAxisLabel);
     gGrid.appendChild(h("text", { x: 14, y: (m.t + H - m.b) / 2, "font-size": 11.5, fill: CHR.ink2,
       "text-anchor": "middle", transform: `rotate(-90 14 ${(m.t + H - m.b) / 2})` }, "fraction of peak FLOPs"));
 
@@ -313,6 +313,7 @@
     window.addEventListener("scroll", hideTip, { passive: true, capture: true });
 
     function render(S) {
+      xAxisLabel.textContent = "tokens per chip per step  (B ÷ " + Core.axisName("X") + ")";
       // ridge point for weight-moving schemes: weights are E·F wide, math only k·F
       const bstar = (S.E / S.k) * (S.C / S.Wici) / S.MX;
       const uTP = Math.min(1, (S.k * S.F * S.MY) / (S.Y * (S.C / S.Wici)));  // TP utilization, flat in b
@@ -347,7 +348,7 @@
           (S.E > 1 ? "ridge: (E/k)·C ÷ (W·M) = " : "ridge: C ÷ (W·M) = ") + Core.fmt(bstar, "int")));
       }
       gAnno.appendChild(h("text", { x: W - m.r - 4, y: py(uTPc) - 6, "text-anchor": "end", "font-size": 11, fill: CHR.ink2 },
-        "TP at Y=" + Core.fmt(S.Y, "int") + (uTP >= 1 ? " (fully hidden)" : "")));
+        "TP at " + Core.axisName("Y") + "=" + Core.fmt(S.Y, "int") + (uTP >= 1 ? " (fully hidden)" : "")));
       const zx = clampDom(px(Math.sqrt(Math.max(X0, Math.min(bstar, X1)) * X0)), m.l + 40, W - m.r);
       gAnno.appendChild(h("text", { x: zx, y: H - m.b - 10, "text-anchor": "middle", "font-size": 10.5, fill: "#8f2222" }, "network-starved"));
 

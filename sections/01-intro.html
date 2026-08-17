@@ -76,9 +76,9 @@ meaning.</span></span></p>
       <td><span class="t-out" data-expr="C" data-fmt="flops"></span></td></tr>
     <tr><td><i class="v v-W">W</i></td><td>Network bandwidth (bidirectional, often subscripted as e.g. <i class="v v-W">W<sub>ici</sub></i> or <i class="v v-W">W<sub>dcn</sub></i>)</td>
       <td><span class="t-out" data-expr="Wici" data-fmt="bw"></span> ici · <span class="t-out" data-expr="Wdcn" data-fmt="bw"></span> dcn</td></tr>
-    <tr><td><i class="v v-X">X</i></td><td>Number of chips along mesh axis X</td>
+    <tr><td><i class="v v-X">X</i></td><td>Number of chips along mesh axis <i class="v v-X">X</i></td>
       <td><span class="t-out" data-expr="X" data-fmt="int"></span></td></tr>
-    <tr><td><i class="v v-Y">Y</i></td><td>Number of chips along an alternate mesh axis, labeled Y</td>
+    <tr><td><i class="v v-Y">Y</i></td><td>Number of chips along an alternate mesh axis, labeled <i class="v v-Y">Y</i></td>
       <td><span class="t-out" data-expr="Y" data-fmt="int"></span></td></tr>
     <tr><td><i class="v v-Z">Z</i></td><td>Number of chips along a third mesh axis, labeled Z</td>
       <td><span class="t-out" data-expr="Z" data-fmt="int"></span></td></tr>
@@ -101,7 +101,7 @@ meaning.</span></span></p>
   k&nbsp;9), so k·<i class="v v-F">F</i> is exact. Column headers explain each
   field; Kimi K3's latent MoE makes its F the roughest (3,072 latent vs 3,584
   routed width — we use latent).</span></span></p>
-  <table class="tbl tbl-compact sortable">
+  <div class="tbl-wrap"><table class="tbl tbl-compact sortable">
     <thead><tr>
       <th data-tip="Click a model name to load its shape (D, F, L) into the page's shared state; click this header to sort alphabetically.">Model</th>
       <th class="num" data-tip="Total parameter count, read from the model's safetensors metadata on Hugging Face. For MoE models most of these sit in experts that are idle for any given token.">params</th>
@@ -128,8 +128,8 @@ meaning.</span></span></p>
       <tr><td><button class="t-preset" data-set='{"D":6144,"F":3072,"L":60,"E":129,"k":5}'>MiniMax-M3</button></td>
         <td class="num">427B</td><td class="num">6,144</td><td class="num">3,072</td><td class="num">15,360</td><td class="num">60</td><td class="num">129</td><td class="num">5</td></tr>
     </tbody>
-  </table>
-  <p style="font-family: var(--sans); font-size: 0.8rem; color: var(--muted); margin: 0.4rem 0 0.2rem;">
+  </table></div>
+  <p style="font-family: var(--sans); font-size: 0.8rem; color: var(--muted); margin: 0.6rem 1rem 0.9rem;">
   Click a model to load its shape (D, F, L, E, k) into the page's shared state
   (the top bar follows); click a column header to sort. F = per-expert width;
   act. k·F = activated width per token; E / k = total / activated experts,
@@ -195,7 +195,7 @@ diagram.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation not
 A quick reminder of the book's notation: a subscript on an array dimension names
 the mesh axis it is split over — <span class="shape">In[B<sub>X</sub>, D]</span>
 means the batch dimension is carved into <i class="v v-X">X</i> pieces, one per
-chip along axis X — while a subscript on a · names the dimension being
+chip along axis <i class="v v-X">X</i> — while a subscript on a · names the dimension being
 contracted. The explorer below the four descriptions lets you click through the
 schemes: for each one it draws all four arrays with their shards colored by
 chip, the per-chip local shapes at the live <i class="v v-X">X</i> and

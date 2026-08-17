@@ -252,7 +252,10 @@
   How do we derive the comms necessary for the backwards pass?</p>
 
   <p>This follows fairly naturally from the rule in the previous section for a
-  single matmul <span class="shape">Y = X · A</span>:</p>
+  single matmul <span class="shape">Y = X · A</span>:<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+  In this appendix X and Y are the input and output <em>matrices</em> of a generic
+  matmul — not the mesh axes — so they are left out of the axis-notation
+  toggle.</span></span></p>
 
   <div class="eq">
     <span class="frac"><span>dL</span><span>dA</span></span> =

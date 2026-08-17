@@ -197,7 +197,7 @@
           { op: "ar", txt: "AllReduce(dW_out)", ax: "X" },
         ],
       },
-      splitNote: "X splits the batch dimension B; weights are replicated on every chip",
+      splitNote: () => Core.axisName("X") + " splits the batch dimension B; weights are replicated on every chip",
     },
     fsdp: {
       title: "FSDP (ZeRO-3)",
@@ -220,7 +220,7 @@
           { op: "rs", txt: "ReduceScatter(dW_out)", ax: "X" },
         ],
       },
-      splitNote: "X splits B in the activations, D in the weights (and the optimizer state)",
+      splitNote: () => Core.axisName("X") + " splits B in the activations, D in the weights (and the optimizer state)",
     },
     tp: {
       title: "Tensor Parallelism",
@@ -242,7 +242,7 @@
           { op: "rs", txt: "ReduceScatter(dIn)", ax: "Y" },
         ],
       },
-      splitNote: "Y splits D in the activations and F in the weights — comms move activations, not weights",
+      splitNote: () => Core.axisName("Y") + " splits D in the activations and F in the weights — comms move activations, not weights",
     },
     mixed: {
       title: "FSDP + Tensor Parallelism",
@@ -267,7 +267,7 @@
           { op: "rs", txt: "ReduceScatter(dIn)", ax: "Y" },
         ],
       },
-      splitNote: "X (FSDP) splits B and the weights' D; Y (TP) splits activations' D and the weights' F — no array is duplicated anywhere",
+      splitNote: () => Core.axisName("X") + " (FSDP) splits B and the weights' D; " + Core.axisName("Y") + " (TP) splits activations' D and the weights' F — no array is duplicated anywhere",
     },
   };
 
@@ -278,7 +278,7 @@
   function localInfo(S, arr) {
     const parts = arr.dims.map(function (d) {
       const v = dimVal(S, d[0]) / axShards(S, d[1]);
-      return { label: d[1] ? d[0] + "/" + d[1] : d[0], value: v };
+      return { label: d[1] ? d[0] + "/" + Core.axisName(d[1]) : d[0], value: v };
     });
     return {
       shapeSym: "[" + parts.map((p) => p.label).join(", ") + "]",
@@ -386,8 +386,8 @@
         if (d[1]) {
           const sub = document.createElement("sub");
           const tok = document.createElement("i");
-          tok.className = "v v-" + d[1];
-          tok.textContent = d[1];
+          tok.className = "v v-" + d[1]; // class keeps the internal axis name; display text follows the toggle
+          tok.textContent = Core.axisName(d[1]);
           tok.addEventListener("mouseenter", () => Core.dimHover(d[1]));
           tok.addEventListener("mouseleave", () => Core.dimHover(null));
           sub.appendChild(tok);
@@ -423,7 +423,7 @@
   function opPill(c) {
     const s = document.createElement("span");
     s.className = "op op-" + c.op;
-    s.textContent = c.txt + " over " + c.ax;
+    s.textContent = c.txt + " over " + Core.axisName(c.ax);
     return s;
   }
 
@@ -540,9 +540,9 @@
       }
       const noteTxt = document.createElement("span");
       noteTxt.style.color = "var(--muted)";
-      noteTxt.textContent = "— " + def.splitNote +
-        (def.axes.X ? " · X = " + Core.fmt(S.X, "si") : "") +
-        (def.axes.Y ? " · Y = " + Core.fmt(S.Y, "si") : "");
+      noteTxt.textContent = "— " + def.splitNote() +
+        (def.axes.X ? " · " + Core.axisName("X") + " = " + Core.fmt(S.X, "si") : "") +
+        (def.axes.Y ? " · " + Core.axisName("Y") + " = " + Core.fmt(S.Y, "si") : "");
       legend.appendChild(noteTxt);
       meshNote.appendChild(legend);
 
@@ -678,7 +678,7 @@
         svg.appendChild(g);
         // live extent labels: rows dim on the left, cols dim underneath
         const d0 = arr.dims[0], d1 = arr.dims[1];
-        const lab = (d) => d[0] + " = " + Core.fmt(dimVal(S, d[0]), d[0] === "B" ? "si" : "int") + (d[1] ? " (split over " + d[1] + ")" : "");
+        const lab = (d) => d[0] + " = " + Core.fmt(dimVal(S, d[0]), d[0] === "B" ? "si" : "int") + (d[1] ? " (split over " + Core.axisName(d[1]) + ")" : "");
         bigExtent(svg, d0[0], x - 12, y, x - 12, y + hh, lab(d0), "v");
         bigExtent(svg, d1[0], x, y + hh + 12, x + w, y + hh + 12, lab(d1), "h");
         x += w + gapX;
@@ -717,8 +717,8 @@
       const meshTxt = document.createElement("span");
       meshTxt.style.cssText = "font-size:0.78rem;color:var(--muted);";
       meshTxt.textContent = def.axes.X && def.axes.Y
-        ? "mesh X×Y = " + Core.fmt(S.X, "si") + "×" + Core.fmt(S.Y, "si") + " = " + Core.fmt(S.X * S.Y, "si") + " chips"
-        : def.axes.X ? "X = " + Core.fmt(S.X, "si") + " chips" : "Y = " + Core.fmt(S.Y, "si") + " chips";
+        ? "mesh " + Core.axisName("X") + "×" + Core.axisName("Y") + " = " + Core.fmt(S.X, "si") + "×" + Core.fmt(S.Y, "si") + " = " + Core.fmt(S.X * S.Y, "si") + " chips"
+        : def.axes.X ? Core.axisName("X") + " = " + Core.fmt(S.X, "si") + " chips" : Core.axisName("Y") + " = " + Core.fmt(S.Y, "si") + " chips";
       strip.appendChild(meshTxt);
 
       setHighlight();

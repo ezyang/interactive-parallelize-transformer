@@ -16,6 +16,7 @@
     Z: 4, Mmicro: 8,
     MFU: 0.4, podSize: 8960, gpu: 0,
     E: 1, k: 1, EP: 8,
+    nota: 0, // 0 = DP/TP axis names (default), 1 = the chapter's X/Y
     pD: 5120, pF: 13824, pL: 40, pNH: 40, pNK: 40, pH: 128, pV: 32000, pB: 16e6,
   };
   const KEYS = Object.keys(DEFAULTS);
@@ -30,6 +31,7 @@
     Z: [1, 64], Mmicro: [1, 128],
     MFU: [0.05, 1], podSize: [1, 65536], gpu: [0, 1],
     E: [1, 2048], k: [1, 64], EP: [1, 1024],
+    nota: [0, 1],
     pD: [128, 65536], pF: [128, 262144], pL: [1, 500], pNH: [1, 512], pNK: [1, 512],
     pH: [16, 1024], pV: [1000, 1e6], pB: [1, 1e10],
   };
@@ -257,7 +259,7 @@
       cardEl.appendChild(row);
     }
   }
-  function placeCard(cardEl, anchorEl) {
+  function placeCard(cardEl, anchorEl, entry) {
     const er = anchorEl.getBoundingClientRect();
     if (!er.width && !er.height) return false; // anchor hidden or gone
     const tw = cardEl.offsetWidth, th = cardEl.offsetHeight;
@@ -265,6 +267,7 @@
     x = Math.max(8, Math.min(window.innerWidth - tw - 8, x));
     let y = er.bottom + 8;
     if (y + th > window.innerHeight - 8) y = er.top - th - 8;
+    if (entry) { x += entry.dx || 0; y += entry.dy || 0; } // user-dragged offset
     cardEl.style.left = x + "px";
     cardEl.style.top = y + "px";
     return true;
@@ -287,7 +290,7 @@
   window.addEventListener("scroll", () => {
     hideHoverTip();
     for (const p of [...pinnedCards]) {
-      if (!placeCard(p.el, p.anchor)) unpinEntry(p);
+      if (!placeCard(p.el, p.anchor, p)) unpinEntry(p);
     }
   }, { capture: true, passive: true });
   document.addEventListener("pointerdown", (ev) => {
@@ -302,7 +305,7 @@
   subscribe(() => {
     for (const p of [...pinnedCards]) {
       for (const r of p.refreshers) { try { r.el.textContent = r.fn(); } catch (e) { /* transient */ } }
-      placeCard(p.el, p.anchor);
+      placeCard(p.el, p.anchor, p);
     }
   });
 
@@ -314,8 +317,8 @@
     Wdcn: "Cross-pod bandwidth per chip (DCN / InfiniBand)", HBM: "HBM capacity per chip",
     D: "d_model — the hidden dimension", F: "Feed-forward width of one expert (d_ff when dense)",
     L: "Layers", B: "Batch — total tokens per step",
-    X: "Mesh axis X — data / FSDP shards", Y: "Mesh axis Y — tensor-parallel shards",
-    MX: "Mesh axes carrying X", MY: "Mesh axes carrying Y",
+    X: "Data / FSDP parallel shards (a mesh axis)", Y: "Tensor-parallel shards (a mesh axis)",
+    MX: "Hardware mesh axes carrying the data/FSDP sharding", MY: "Hardware mesh axes carrying the tensor sharding",
     Z: "Pipeline stages", Mmicro: "Microbatches",
     MFU: "Model FLOPs utilization", podSize: "Chips per pod (ICI / NVLink domain)",
     gpu: "GPU switched-fabric flag (0 = TPU mesh)", E: "Experts per layer (total, incl. shared)",
@@ -336,7 +339,7 @@
   function makeTipVar(key) {
     const s = document.createElement("span");
     s.className = "tip-scrub";
-    s.textContent = key;
+    s.textContent = displayName(key);
     let sx = 0, sv = 0, drag = false;
     s.addEventListener("pointerdown", (ev) => {
       drag = true; sx = ev.clientX; sv = state[key];
@@ -442,8 +445,29 @@
         const card = makeCard(true);
         const refreshers = [];
         renderRows(card, rowsFn(), refreshers);
-        pinnedCards.push({ el: card, anchor: el, refreshers });
-        placeCard(card, el);
+        const entry = { el: card, anchor: el, refreshers, dx: 0, dy: 0 };
+        pinnedCards.push(entry);
+        placeCard(card, el, entry);
+        // the label row doubles as a drag handle: move the card out of the way
+        const handle = card.querySelector(".tip-label") || card.firstChild;
+        if (handle) {
+          handle.classList.add("tip-handle");
+          let hx = 0, hy = 0, dragging = false;
+          handle.addEventListener("pointerdown", (ev) => {
+            dragging = true; hx = ev.clientX - entry.dx; hy = ev.clientY - entry.dy;
+            handle.setPointerCapture(ev.pointerId);
+            ev.preventDefault(); ev.stopPropagation();
+          });
+          handle.addEventListener("pointermove", (ev) => {
+            if (!dragging) return;
+            entry.dx = ev.clientX - hx; entry.dy = ev.clientY - hy;
+            placeCard(card, el, entry);
+          });
+          const end = () => { dragging = false; };
+          handle.addEventListener("pointerup", end);
+          handle.addEventListener("pointercancel", end);
+          handle.addEventListener("lostpointercapture", end);
+        }
       });
     }
   }
@@ -465,7 +489,7 @@
     el.setAttribute("aria-valuemax", String(max));
     attachHoverTip(el, () => [
       { cls: "tip-label", text: KEY_NAMES[key] || key },
-      { cls: "tip-code", text: key + " = " + shortNum(state[key]) },
+      { cls: "tip-code", text: displayName(key) + " = " + shortNum(state[key]) },
       { cls: "tip-sub", text: "range " + shortNum(min) + " … " + shortNum(max) + (el.dataset.snap ? " · snaps to " + el.dataset.snap : "") + " · drag ⟷ · double-click to type (blank = reset)" },
     ]);
 
@@ -662,8 +686,8 @@
       case "F": return ["feed-forward width of ONE expert (for a dense model, simply d_ff). A token multiplies through k·F; weights hold E·F.",
         "F = " + fmt(state.F, "int") + (state.k > 1 ? "   k·F = " + fmt(state.k * state.F, "int") + "   E·F = " + fmt(state.E * state.F, "si") : "")];
       case "L": return ["number of layers in the model", "L = " + fmt(state.L, "int")];
-      case "X": return ["chips along mesh axis X (data / FSDP parallelism)", "X = " + fmt(state.X, "int")];
-      case "Y": return ["chips along mesh axis Y (tensor parallelism)", "Y = " + fmt(state.Y, "int")];
+      case "X": return ["chips on the data/FSDP-parallel mesh axis", axisName("X") + " = " + fmt(state.X, "int")];
+      case "Y": return ["chips on the tensor-parallel mesh axis", axisName("Y") + " = " + fmt(state.Y, "int")];
       case "N": return ["total chips in the slice, N = X·Y", "N = " + fmt(state.X * state.Y, "int")];
       case "C": return ["peak matmul FLOPs/s of one chip", "C = " + fmt(state.C, "flops")];
       case "W":
@@ -677,8 +701,8 @@
       case "k": return ["experts activated per token, counting shared", "k = " + fmt(state.k, "int") + "   k·F = " + fmt(state.k * state.F, "int")];
       case "M":
         if (/micro/i.test(txt)) return ["number of microbatches in the pipeline", "M_micro = " + fmt(state.Mmicro, "int")];
-        if (/X/.test(txt)) return ["hardware mesh axes carrying the X (FSDP) sharding", "M_X = " + fmt(state.MX, "int")];
-        if (/Y/.test(txt)) return ["hardware mesh axes carrying the Y (TP) sharding", "M_Y = " + fmt(state.MY, "int")];
+        if (/X|DP/.test(txt.replace(/^M/, ""))) return ["hardware mesh axes carrying the data/FSDP sharding", axisName("MX") + " = " + fmt(state.MX, "int")];
+        if (/Y|TP/.test(txt.replace(/^M/, ""))) return ["hardware mesh axes carrying the tensor sharding", axisName("MY") + " = " + fmt(state.MY, "int")];
         return ["mesh-axes multiplier (M_X / M_Y), or the chips per ICI slice in the pods section", "M_X = " + fmt(state.MX, "int") + "   M_Y = " + fmt(state.MY, "int") + "   slice = " + fmt(state.podSize, "int")];
       default: return null;
     }
@@ -693,9 +717,52 @@
       el.addEventListener("mouseleave", () => dimHover(null));
       attachHoverTip(el, () => {
         const m = dimMeaning(dim, el);
-        return m ? [{ cls: "tip-label", text: m[0] }, { cls: "tip-code", text: m[1] }] : [];
-      });
+        return m ? [{ cls: "tip-label", text: m[0] }, { cls: "tip-code", text: m[1], refresh: () => dimMeaning(dim, el)[1] }] : [];
+      }, { pinnable: true });
     });
+  }
+
+  // ---------- axis-notation rendering layer ----------
+  // The chapter names the mesh axes X/Y; the page renders DP/TP by default.
+  // Internal names (state keys, data-expr, URL hash) are ALWAYS X/Y.
+  const AXIS_NAMES = {
+    0: { X: "DP", Y: "TP", MX: "M_DP", MY: "M_TP" },
+    1: { X: "X", Y: "Y", MX: "M_X", MY: "M_Y" },
+  };
+  function axisName(id) {
+    const m = AXIS_NAMES[state.nota] || AXIS_NAMES[0];
+    return m[id] || id;
+  }
+  function displayName(key) { // for tooltip code lines and in-tip scrub tokens
+    return key === "X" || key === "Y" || key === "MX" || key === "MY" ? axisName(key) : key;
+  }
+
+  const notaNodes = []; // {node, kind:"text"|"sub", axis:"X"|"Y"}
+  function initAxisNotation(root) {
+    // bare X/Y text inside .v-X / .v-Y tokens
+    root.querySelectorAll(".v-X, .v-Y").forEach((el) => {
+      const axis = el.classList.contains("v-X") ? "X" : "Y";
+      for (const n of el.childNodes) {
+        if (n.nodeType === 3 && n.textContent.trim() === axis) {
+          notaNodes.push({ node: n, kind: "text", axis });
+        }
+      }
+    });
+    // subscript X/Y anywhere in the static page (array shardings, M_X, X_opt, AllGather_Y …)
+    root.querySelectorAll(".paper sub").forEach((sub) => {
+      const t = sub.textContent.trim();
+      if ((t === "X" || t === "Y") && !sub.closest("[data-widget]")) {
+        notaNodes.push({ node: sub, kind: "sub", axis: t });
+      }
+    });
+    renderAxisNotation();
+  }
+  function renderAxisNotation() {
+    for (const e of notaNodes) {
+      const name = axisName(e.axis);
+      if (e.kind === "text") e.node.textContent = name;
+      else e.node.textContent = name;
+    }
   }
 
   // ---------- sidenotes ----------
@@ -978,6 +1045,8 @@
     root.querySelectorAll(".t-show[data-expr]").forEach(initShow);
     root.querySelectorAll(".t-preset[data-set]").forEach(initPreset);
     initDimTokens(root);
+    initAxisNotation(root);
+    subscribe(renderAxisNotation);
     initSidenotes(root);
     mountWidgets(root);
     subscribe((S) => { for (const w of instances) { try { w.update(S); } catch (e) { console.error("widget update failed", e); } } });
@@ -1024,7 +1093,7 @@
     get: () => state,
     defaults: () => Object.assign({}, DEFAULTS),
     set, subscribe, evalExpr, evalNow, fmt, resetAll,
-    dimHover, onDimHover,
+    dimHover, onDimHover, axisName,
     SERIES: { s1: "#2a78d6", s2: "#eb6834", s3: "#1baf7a", s4: "#eda100", s5: "#e87ba4", s6: "#008300", s7: "#4a3aa7", s8: "#e34948" },
     CHROME: { ink: "#0b0b0b", ink2: "#52514e", muted: "#898781", grid: "#e1e0d9", axis: "#c3c2b7", surface: "#fcfcfb", good: "#0ca30c", bad: "#d03b3b" },
   };

@@ -135,7 +135,7 @@
   <div class="eq-live">right now, per layer, with
     <i class="v v-M">M<sub>Y</sub></i> =
     <span class="t-var" data-var="MY" data-min="1" data-max="3" data-scale="lin" data-snap="int" data-fmt="int"></span>
-    ICI axes carrying Y<span class="t-show inline" data-expr="E>1"> (MoE: the sharded math runs through the activated width k·F)</span>:
+    ICI axes carrying <i class="v v-Y">Y</i><span class="t-show inline" data-expr="E>1"> (MoE: the sharded math runs through the activated width k·F)</span>:
     <span class="t-out" data-expr="4*B*D*k*F/(Y*C)" data-fmt="time"></span> of math vs
     <span class="t-out" data-expr="4*B*D/(Wici*MY)" data-fmt="time"></span> of comms →
     <span class="t-if" data-expr="k*F &gt; Y*alpha/MY" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
@@ -212,7 +212,7 @@
   parallelism.<span class="t-show inline" data-expr="gpu"><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
   On GPUs the same bound holds with <i class="v v-W">W</i> read as the per-GPU
   NVLink egress bandwidth, which generally pins tensor parallelism inside a
-  single node (Y ≤ 8) or at most two (<a href="#gpus">details</a>).</span></span></span></div>
+  single node (<i class="v v-Y">Y</i> ≤ 8) or at most two (<a href="#gpus">details</a>).</span></span></span></div>
 
   <p><strong>Note that this doesn't depend on the precision of the
   computation</strong>, since e.g. for int8, on TPUv5p,
@@ -229,7 +229,7 @@
   to 8, then 16, then 32, and watch the verdicts. Or hold the model fixed and
   scrub <i class="v v-C">C</i> =
   <span class="t-var" data-var="C" data-min="1e13" data-max="5e15" data-scale="log" data-fmt="flops"></span>:
-  faster chips shrink Y<sub>max</sub> =
+  faster chips shrink <i class="v v-Y">Y<sub>max</sub></i> =
   <span class="t-out" data-expr="MY*k*F/alpha" data-fmt="sig3"></span>, which is
   why each hardware generation makes tensor parallelism a little harder to
   hide.</span></span></p>
@@ -247,7 +247,7 @@
     The required F for 8-way model sharding is
     20k.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
     Check it live at the current hardware: with LLaMA&nbsp;3-70B's F = 28,672
-    pinned, Y<sub>max</sub> =
+    pinned, <i class="v v-Y">Y<sub>max</sub></i> =
     <span class="t-out" data-expr="MY*28672/alpha" data-fmt="sig3"></span>-way;
     8-way is
     <span class="t-if" data-expr="28672 &gt; 8*alpha/MY" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>,
@@ -262,7 +262,7 @@
     Check it live at the current hardware: with Gemma 7B's F = 49,152 pinned
     (its GeGLU feedforward folds two fused gating up-projections into what we
     count as <i class="v v-F">F</i> — hence much larger than the usual 4·D),
-    Y<sub>max</sub> =
+    <i class="v v-Y">Y<sub>max</sub></i> =
     <span class="t-out" data-expr="MY*49152/alpha" data-fmt="sig3"></span>-way,
     and 16-way is
     <span class="t-if" data-expr="49152 &gt; 16*alpha/MY" data-then="still under the roof ✓" data-else="over the roof ✗"></span>.</span></span></li>

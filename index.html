@@ -81,13 +81,22 @@
     <span class="k"><span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span></span> and watch the per-chip batch
     <span class="k"><span class="t-out" data-expr="B/X" data-fmt="int"></span></span> follow (hover any blue number for its formula). All of them share <em>one</em> model of a training run (the strip pinned above), so a change made anywhere propagates everywhere: equations, diagrams, charts, even the answers to the exercises. And scrub without fear —
     <button class="reset">reset</button> restores every default (it's the same button as in the top bar, which lights up orange whenever you've strayed from the defaults), and any single number reverts on its own when you double-click it and commit it blank.</p>
-    <p style="margin:0"><strong>Whose words are you reading?</strong> The main column is the original chapter's text (© 2022 Maruan Al-Shedivat, © 2025 Google LLC, <a href="LICENSE-scaling-book.txt">MIT license</a>), with four disclosed exceptions:
+    <p style="margin:0"><strong>Whose words are you reading?</strong> The main column is the original chapter's text (© 2022 Maruan Al-Shedivat, © 2025 Google LLC, <a href="LICENSE-scaling-book.txt">MIT license</a>), with a handful of disclosed conventions:
     wherever the chapter printed a fixed number, this page computes it live (these in-place swaps aren't individually marked);
     the interactive figures and their captions replace the original static figures;
     <span class="k">✦&nbsp;margin notes</span> are this adaptation's voice — written by Fable, the Anthropic model that built this edition — instructions, asides, and the added
     <a href="#roofline">roofline primer</a>, <a href="#expert-parallelism">expert parallelism</a>, and <a href="#gpus">GPU network</a> sections;
+    the chapter's mesh-axis names X and Y are rendered <span class="k">DP</span> and <span class="k">TP</span> throughout (a global substitution — switchable in the article settings below);
     where a sentence had to be altered to host a live element, a <span class="k">Δ&nbsp;margin note</span> quotes the original and states the change;
     and where this edition's additions make a chapter statement inaccurate as written, an italic <span class="ed">(Ed:&nbsp;…)</span> interjection corrects it in place.</p>
+    <div class="article-dash" aria-label="article settings">
+      <span class="dash-label">Article settings</span>
+      <span class="dash-item" data-tip="Purely presentational: internal names, links, and shared URLs always use X/Y.">axis notation
+        <span class="dash-seg">
+          <button class="dash-opt" data-nota="0">DP / TP</button><button class="dash-opt" data-nota="1">X / Y (chapter&rsquo;s)</button>
+        </span>
+      </span>
+    </div>
   </div>
 </header>
 <!-- ==== sections/01-intro.html ==== -->
@@ -169,9 +178,9 @@ meaning.</span></span></p>
       <td><span class="t-out" data-expr="C" data-fmt="flops"></span></td></tr>
     <tr><td><i class="v v-W">W</i></td><td>Network bandwidth (bidirectional, often subscripted as e.g. <i class="v v-W">W<sub>ici</sub></i> or <i class="v v-W">W<sub>dcn</sub></i>)</td>
       <td><span class="t-out" data-expr="Wici" data-fmt="bw"></span> ici · <span class="t-out" data-expr="Wdcn" data-fmt="bw"></span> dcn</td></tr>
-    <tr><td><i class="v v-X">X</i></td><td>Number of chips along mesh axis X</td>
+    <tr><td><i class="v v-X">X</i></td><td>Number of chips along mesh axis <i class="v v-X">X</i></td>
       <td><span class="t-out" data-expr="X" data-fmt="int"></span></td></tr>
-    <tr><td><i class="v v-Y">Y</i></td><td>Number of chips along an alternate mesh axis, labeled Y</td>
+    <tr><td><i class="v v-Y">Y</i></td><td>Number of chips along an alternate mesh axis, labeled <i class="v v-Y">Y</i></td>
       <td><span class="t-out" data-expr="Y" data-fmt="int"></span></td></tr>
     <tr><td><i class="v v-Z">Z</i></td><td>Number of chips along a third mesh axis, labeled Z</td>
       <td><span class="t-out" data-expr="Z" data-fmt="int"></span></td></tr>
@@ -194,7 +203,7 @@ meaning.</span></span></p>
   k&nbsp;9), so k·<i class="v v-F">F</i> is exact. Column headers explain each
   field; Kimi K3's latent MoE makes its F the roughest (3,072 latent vs 3,584
   routed width — we use latent).</span></span></p>
-  <table class="tbl tbl-compact sortable">
+  <div class="tbl-wrap"><table class="tbl tbl-compact sortable">
     <thead><tr>
       <th data-tip="Click a model name to load its shape (D, F, L) into the page's shared state; click this header to sort alphabetically.">Model</th>
       <th class="num" data-tip="Total parameter count, read from the model's safetensors metadata on Hugging Face. For MoE models most of these sit in experts that are idle for any given token.">params</th>
@@ -221,8 +230,8 @@ meaning.</span></span></p>
       <tr><td><button class="t-preset" data-set='{"D":6144,"F":3072,"L":60,"E":129,"k":5}'>MiniMax-M3</button></td>
         <td class="num">427B</td><td class="num">6,144</td><td class="num">3,072</td><td class="num">15,360</td><td class="num">60</td><td class="num">129</td><td class="num">5</td></tr>
     </tbody>
-  </table>
-  <p style="font-family: var(--sans); font-size: 0.8rem; color: var(--muted); margin: 0.4rem 0 0.2rem;">
+  </table></div>
+  <p style="font-family: var(--sans); font-size: 0.8rem; color: var(--muted); margin: 0.6rem 1rem 0.9rem;">
   Click a model to load its shape (D, F, L, E, k) into the page's shared state
   (the top bar follows); click a column header to sort. F = per-expert width;
   act. k·F = activated width per token; E / k = total / activated experts,
@@ -288,7 +297,7 @@ diagram.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation not
 A quick reminder of the book's notation: a subscript on an array dimension names
 the mesh axis it is split over — <span class="shape">In[B<sub>X</sub>, D]</span>
 means the batch dimension is carved into <i class="v v-X">X</i> pieces, one per
-chip along axis X — while a subscript on a · names the dimension being
+chip along axis <i class="v v-X">X</i> — while a subscript on a · names the dimension being
 contracted. The explorer below the four descriptions lets you click through the
 schemes: for each one it draws all four arrays with their shards colored by
 chip, the per-chip local shapes at the live <i class="v v-X">X</i> and
@@ -475,7 +484,7 @@ number — every equation, meter, and verdict below recomputes.</span></span></p
     <span class="shape">dW<sub>out</sub>[F, D]</span>,
     <span class="shape">dW<sub>in</sub>[D, F]</span><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
     The <span class="shape">{U<sub>X</sub>}</span> annotation below marks a
-    result that is <em>unreduced</em> over the X axis: each chip holds a
+    result that is <em>unreduced</em> over the <i class="v v-X">X</i> axis: each chip holds a
     partial sum from its own slice of the batch.</span></span></p>
     <ol>
       <li><span class="shape">dOut[B<sub>X</sub>, D]</span> = …</li>
@@ -739,7 +748,7 @@ inflates this per-chip floor by E/k =
     of <span class="t-out" data-expr="alpha/MX" data-fmt="int"></span> tokens
     inflates to (E/k) · C/(W<sub>ici</sub>·M<sub>X</sub>) =
     <span class="t-out" data-expr="(E/k)*alpha/MX" data-fmt="int"></span> — vs the
-    current B/X =
+    current B/<i class="v v-X">X</i> =
     <span class="t-out" data-expr="B/X" data-fmt="int"></span> tokens/chip →
     <span class="t-if" data-expr="B/X &gt; (E/k)*alpha/MX" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
   </div>
@@ -1077,17 +1086,17 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   the mini-calculator that follows is an addition of this edition. With
   <i class="v v-B">B</i> =
   <span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span>
-  tokens, FSDP scales to X<sub>max</sub> chips before hitting the bandwidth
+  tokens, FSDP scales to <i class="v v-X">X<sub>max</sub></i> chips before hitting the bandwidth
   limit.</span></span></p>
 
   <div class="eq">
-    X<sub>max</sub> =
+    <i class="v v-X">X<sub>max</sub></i> =
     <span class="frac"><span><i class="v v-B">B</i> · <i class="v v-M">M<sub>X</sub></i><span class="t-show inline" data-expr="E>1"> · <i class="v">k</i></span></span><span>α<span class="t-show inline" data-expr="E>1"> · <i class="v">E</i></span></span></span>
     = <span class="t-out" data-expr="B*MX*k/(alpha*E)" data-fmt="chips"></span> chips
     <span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> This
     equation is not in the chapter — it just solves the chapter's bound
-    B/X &gt; α/M<sub>X</sub> (with a MoE loaded, the exact form
-    B/X &gt; (E/k)·α/M<sub>X</sub>) for X, so you can scrub
+    B/<i class="v v-X">X</i> &gt; α/M<sub>X</sub> (with a MoE loaded, the exact form
+    B/<i class="v v-X">X</i> &gt; (E/k)·α/M<sub>X</sub>) for <i class="v v-X">X</i>, so you can scrub
     <i class="v v-B">B</i> and read off the largest compute-bound chip
     count.</span></span>
   </div>
@@ -1292,7 +1301,7 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   <div class="eq-live">right now, per layer, with
     <i class="v v-M">M<sub>Y</sub></i> =
     <span class="t-var" data-var="MY" data-min="1" data-max="3" data-scale="lin" data-snap="int" data-fmt="int"></span>
-    ICI axes carrying Y<span class="t-show inline" data-expr="E>1"> (MoE: the sharded math runs through the activated width k·F)</span>:
+    ICI axes carrying <i class="v v-Y">Y</i><span class="t-show inline" data-expr="E>1"> (MoE: the sharded math runs through the activated width k·F)</span>:
     <span class="t-out" data-expr="4*B*D*k*F/(Y*C)" data-fmt="time"></span> of math vs
     <span class="t-out" data-expr="4*B*D/(Wici*MY)" data-fmt="time"></span> of comms →
     <span class="t-if" data-expr="k*F &gt; Y*alpha/MY" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
@@ -1369,7 +1378,7 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   parallelism.<span class="t-show inline" data-expr="gpu"><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
   On GPUs the same bound holds with <i class="v v-W">W</i> read as the per-GPU
   NVLink egress bandwidth, which generally pins tensor parallelism inside a
-  single node (Y ≤ 8) or at most two (<a href="#gpus">details</a>).</span></span></span></div>
+  single node (<i class="v v-Y">Y</i> ≤ 8) or at most two (<a href="#gpus">details</a>).</span></span></span></div>
 
   <p><strong>Note that this doesn't depend on the precision of the
   computation</strong>, since e.g. for int8, on TPUv5p,
@@ -1386,7 +1395,7 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   to 8, then 16, then 32, and watch the verdicts. Or hold the model fixed and
   scrub <i class="v v-C">C</i> =
   <span class="t-var" data-var="C" data-min="1e13" data-max="5e15" data-scale="log" data-fmt="flops"></span>:
-  faster chips shrink Y<sub>max</sub> =
+  faster chips shrink <i class="v v-Y">Y<sub>max</sub></i> =
   <span class="t-out" data-expr="MY*k*F/alpha" data-fmt="sig3"></span>, which is
   why each hardware generation makes tensor parallelism a little harder to
   hide.</span></span></p>
@@ -1404,7 +1413,7 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
     The required F for 8-way model sharding is
     20k.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
     Check it live at the current hardware: with LLaMA&nbsp;3-70B's F = 28,672
-    pinned, Y<sub>max</sub> =
+    pinned, <i class="v v-Y">Y<sub>max</sub></i> =
     <span class="t-out" data-expr="MY*28672/alpha" data-fmt="sig3"></span>-way;
     8-way is
     <span class="t-if" data-expr="28672 &gt; 8*alpha/MY" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>,
@@ -1419,7 +1428,7 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
     Check it live at the current hardware: with Gemma 7B's F = 49,152 pinned
     (its GeGLU feedforward folds two fused gating up-projections into what we
     count as <i class="v v-F">F</i> — hence much larger than the usual 4·D),
-    Y<sub>max</sub> =
+    <i class="v v-Y">Y<sub>max</sub></i> =
     <span class="t-out" data-expr="MY*49152/alpha" data-fmt="sig3"></span>-way,
     and 16-way is
     <span class="t-if" data-expr="49152 &gt; 16*alpha/MY" data-then="still under the roof ✓" data-else="over the roof ✗"></span>.</span></span></li>
@@ -1461,7 +1470,7 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
     other cases, there is no duplication of model parameters: each of the
     <i class="v v-N">N</i> = <span class="t-out" data-expr="N" data-fmt="int"></span>
     chips holds a distinct
-    <span class="shape">[D/X, F/Y]</span> =
+    <span class="shape">[D/<i class="v v-X">X</i>, F/<i class="v v-Y">Y</i>]</span> =
     <span class="shape">[<span class="t-out" data-expr="D/X" data-fmt="int"></span>, <span class="t-out" data-expr="F/Y" data-fmt="int"></span>]</span>
     tile of W<sub>in</sub>, and the activations are sharded along both of their
     axes too. Hover a chip to see which shards it owns.</figcaption>
@@ -1480,7 +1489,7 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
       in (step 1) and one <span class="op op-rs">ReduceScatter</span> out
       (step 6) of activation bytes; the weight gathers on the
       <i class="v v-X">X</i> axis (steps 2 and 4) can be prefetched. Those two
-      Y-axis activation hops and two X-axis weight hops are exactly the
+      <i class="v v-Y">Y</i>-axis activation hops and two <i class="v v-X">X</i>-axis weight hops are exactly the
       2 · 2 factors in T<sub>TP comms</sub> and T<sub>FSDP comms</sub>
       below.</span></span></p>
       <ol>
@@ -1614,15 +1623,15 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   which occurs when</p>
 
   <div class="eq">
-    <span class="frac"><span><i class="v v-F">F</i> · X<sub>opt</sub></span><span><i class="v v-M">M<sub>X</sub></i></span></span>
-    = <span class="frac"><span><i class="v v-B">B</i> · <i class="v v-N">N</i></span><span>X<sub>opt</sub> · <i class="v v-M">M<sub>Y</sub></i></span></span>
+    <span class="frac"><span><i class="v v-F">F</i> · <i class="v v-X">X<sub>opt</sub></i></span><span><i class="v v-M">M<sub>X</sub></i></span></span>
+    = <span class="frac"><span><i class="v v-B">B</i> · <i class="v v-N">N</i></span><span><i class="v v-X">X<sub>opt</sub></i> · <i class="v v-M">M<sub>Y</sub></i></span></span>
     &nbsp;→&nbsp;
-    X<sub>opt</sub> =
+    <i class="v v-X">X<sub>opt</sub></i> =
     <span class="sqrt"><span><span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-F">F</i></span></span> · <span class="frac"><span><i class="v v-M">M<sub>X</sub></i></span><span><i class="v v-M">M<sub>Y</sub></i></span></span> · <i class="v v-N">N</i></span></span>
   </div>
 
   <div class="eq-live">right now:
-    X<sub>opt</sub> = <span class="t-out" data-expr="sqrt(B*MX*N/(E*F*MY))" data-fmt="sig3"></span><span class="t-show inline" data-expr="E>1"> (the weight term is E·F wide, so E joins F under the radical)</span>
+    <i class="v v-X">X<sub>opt</sub></i> = <span class="t-out" data-expr="sqrt(B*MX*N/(E*F*MY))" data-fmt="sig3"></span><span class="t-show inline" data-expr="E>1"> (the weight term is E·F wide, so E joins F under the radical)</span>
     → nearest power of two:
     <span class="t-out" data-expr="pow(2, round(log2(max(1, min(N, sqrt(B*MX*N/(E*F*MY)))))))" data-fmt="int"></span>
     chips of FSDP, with the current
@@ -1635,13 +1644,13 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   optimal. Let's get a sense of scale. Plugging in realistic values, namely
   <i class="v v-N">N</i> = 64 (corresponding to a 4x4x4 array of chips),
   <i class="v v-B">B</i> = 48,000, <i class="v v-F">F</i> = 32768, gives
-  roughly <span class="eq-i">X ≈ <span class="t-out" data-expr="sqrt(48000*2*64/32768)" data-fmt="sig3"></span></span>.
+  roughly <span class="eq-i"><i class="v v-X">X</i> ≈ <span class="t-out" data-expr="sqrt(48000*2*64/32768)" data-fmt="sig3"></span></span>.
   So we would choose <i class="v v-X">X</i> to be 16 and
   <i class="v v-Y">Y</i> to be 4, close to our calculated
   optimum.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
   The chapter rounds this to ≈13.9; the pinned live value here is
   √(48,000 · 2 · 64 / 32,768) exactly. And at whatever is loaded right now,
-  X<sub>opt</sub> =
+  <i class="v v-X">X<sub>opt</sub></i> =
   <span class="t-out" data-expr="sqrt(B*MX*N/(E*F*MY))" data-fmt="sig3"></span>.
   Press the first button below to load the chapter's exact scenario into the
   whole page.</span></span></p>
@@ -1653,7 +1662,7 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
 
   <div class="takeaway"><strong>Takeaway:</strong> in general, during training,
   the optimal amount of FSDP is
-  <span class="eq-i">X<sub>opt</sub> =
+  <span class="eq-i"><i class="v v-X">X<sub>opt</sub></i> =
   <span class="sqrt"><span><span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-F">F</i></span></span> · <span class="frac"><span><i class="v v-M">M<sub>X</sub></i></span><span><i class="v v-M">M<sub>Y</sub></i></span></span> · <i class="v v-N">N</i></span></span></span>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
   You can <em>feel</em> this optimum in the figure below, which holds
   <i class="v v-N">N</i> fixed and sweeps the split. Try: drag the marker to
@@ -1676,7 +1685,7 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
     T<sub>math</sub>, and wherever the envelope dips below it the layer is
     compute-bound. Drag the marker: it sets <i class="v v-X">X</i> (and
     <i class="v v-Y">Y</i> = <i class="v v-N">N</i>/<i class="v v-X">X</i>) for
-    the whole page. The dotted drop-line marks X<sub>opt</sub> =
+    the whole page. The dotted drop-line marks <i class="v v-X">X<sub>opt</sub></i> =
     <span class="t-out" data-expr="sqrt(B*MX*N/(E*F*MY))" data-fmt="sig3"></span>.</figcaption>
   </figure>
 
@@ -1704,9 +1713,9 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
     <span class="frac"><span><i class="v v-B">B</i> · <i class="v v-F">F</i></span><span><i class="v v-N">N</i> · α</span></span>
   </div>
 
-  <p>Since we calculated X<sub>opt</sub> to make the LHS maximum equal, we can
+  <p>Since we calculated <i class="v v-X">X<sub>opt</sub></i> to make the LHS maximum equal, we can
   just plug it into either side (noting that
-  <span class="eq-i">Y<sub>opt</sub> = <i class="v v-N">N</i>/X<sub>opt</sub></span>),
+  <span class="eq-i"><i class="v v-Y">Y<sub>opt</sub></i> = <i class="v v-N">N</i>/<i class="v v-X">X<sub>opt</sub></i></span>),
   i.e.</p>
 
   <div class="eq">
@@ -1781,7 +1790,7 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   <i class="v v-B">B</i>/<i class="v v-N">N</i> =
   <span class="t-out" data-expr="B/N" data-fmt="int"></span> against the
   threshold — the flip lands right at the ridge (assuming
-  <i class="v v-X">X</i> is near X<sub>opt</sub>; if it's far off, the flip
+  <i class="v v-X">X</i> is near <i class="v v-X">X<sub>opt</sub></i>; if it's far off, the flip
   comes sooner).</span></span></p>
 
   <figure class="breakout">
@@ -1861,8 +1870,8 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   differences in the number of axes for
   each.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
   The chapter's animation swept the FSDP/TP split itself; on this page that
-  sweep is the earlier X-axis explorer, whose optimum at the current state is
-  X<sub>opt</sub> =
+  sweep is the earlier <i class="v v-X">X</i>-axis explorer, whose optimum at the current state is
+  <i class="v v-X">X<sub>opt</sub></i> =
   <span class="t-out" data-expr="sqrt(B*MX*N/(E*F*MY))" data-fmt="sig3"></span>
   → nearest power of two
   <span class="t-out" data-expr="pow(2, round(log2(max(1, min(N, sqrt(B*MX*N/(E*F*MY)))))))" data-fmt="int"></span>-way
@@ -2466,7 +2475,7 @@ for i in range(num_layers - 1, -1, -1):
   the one-pod recipe first and watch both numbers move.</span></span></p>
 
   <div class="preset-row"><span class="preset-label">Try:</span>
-    <button class="t-preset" data-set='{"B":1000000,"F":30720,"X":1024,"Y":8,"podSize":8960}'>BS = 1M, one pod (X=1024, Y=8)</button>
+    <button class="t-preset" data-set='{"B":1000000,"F":30720,"X":1024,"Y":8,"podSize":8960}'>BS = 1M, one pod (<i class="v v-X">X</i>=1024, <i class="v v-Y">Y</i>=8)</button>
     <button class="t-preset" data-set='{"B":2000000,"F":30720,"X":2240,"Y":8,"podSize":8960}'>BS = 2M, two pods</button>
   </div>
 
@@ -2623,8 +2632,8 @@ for i in range(num_layers - 1, -1, -1):
   4M).<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> These
   numbers read from the live state: click the <strong>H800 (DeepSeek)</strong> preset
   above and the ridge becomes the chapter's 3,300 tokens per GPU; on the H100 preset
-  the same spans show 2,200. (Chapter 12 also refines the picture when X is small —
-  spanning exactly 2 nodes rides the ring's (X−1)/X factor for ~2× effective
+  the same spans show 2,200. (Chapter 12 also refines the picture when <i class="v v-X">X</i> is small —
+  spanning exactly 2 nodes rides the ring's (<i class="v v-X">X</i>−1)/<i class="v v-X">X</i> factor for ~2× effective
   bandwidth, which is why you see 2-way data parallelism fairly often; condensed
   here, see Chapter 12. Its MoE refinement — the DP ridge inflates by E/k — now
   lives in <a href="#data-parallelism">Data Parallelism</a>, visible with a MoE
@@ -2657,9 +2666,9 @@ for i in range(num_layers - 1, -1, -1):
   (<span class="eq-i"><i class="v v-F">F</i> &gt; <span class="t-out" data-expr="alphaDcn/podSize" data-fmt="int"></span> · (<i class="v v-Y">Y</i> − 8)</span>),
   which gives us up to 19-way model parallelism in
   theory.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> “As
-  with above” refers to Chapter 12's small-X refinement (condensed in the note two
+  with above” refers to Chapter 12's small-<i class="v v-X">X</i> refinement (condensed in the note two
   paragraphs up): a collective spanning exactly 2 nodes only pays the ring's
-  (X−1)/X factor, effectively doubling bandwidth.</span></span></p>
+  (<i class="v v-X">X</i>−1)/<i class="v v-X">X</i> factor, effectively doubling bandwidth.</span></span></p>
 
   <h3>What collectives cost on this fabric<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> This
   heading is the adaptation's; the takeaways and sentences under it are carried
@@ -3202,7 +3211,10 @@ for i in range(num_layers - 1, -1, -1):
   How do we derive the comms necessary for the backwards pass?</p>
 
   <p>This follows fairly naturally from the rule in the previous section for a
-  single matmul <span class="shape">Y = X · A</span>:</p>
+  single matmul <span class="shape">Y = X · A</span>:<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+  In this appendix X and Y are the input and output <em>matrices</em> of a generic
+  matmul — not the mesh axes — so they are left out of the axis-notation
+  toggle.</span></span></p>
 
   <div class="eq">
     <span class="frac"><span>dL</span><span>dA</span></span> =
@@ -3297,6 +3309,18 @@ for i in range(num_layers - 1, -1, -1):
   }
   wire("model-preset");
   wire("hw-preset");
+  // article-settings dashboard (howto box): segmented notation control
+  var dashOpts = document.querySelectorAll("button.dash-opt[data-nota]");
+  dashOpts.forEach(function (btn) {
+    btn.addEventListener("click", function () { Core.set({ nota: Number(btn.dataset.nota) }); });
+  });
+  function dashSync(S) {
+    dashOpts.forEach(function (btn) {
+      btn.setAttribute("aria-pressed", Number(btn.dataset.nota) === S.nota ? "true" : "false");
+    });
+  }
+  Core.subscribe(dashSync);
+  dashSync(Core.get());
 })();
 </script>
 </body>

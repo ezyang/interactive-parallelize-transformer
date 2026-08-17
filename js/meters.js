@@ -39,51 +39,54 @@
      same origin — any comms overhang past T_math is hatched red
      ("exposed"), same visual language as overlap-timeline.
      ============================================================ */
+  // label / tmFormula / tcFormula are functions: they name mesh axes, so they
+  // must be rebuilt with Core.axisName at render time (nota toggle).
   const BOUND_SCHEMES = {
     // F = per-expert width (chapter-12 convention): math terms carry k·F,
     // weight-moving comms carry E·F. Dense models are the E = k = 1 case.
     dp: {
-      label: "data parallelism (backward pass)",
+      label: () => "data parallelism (backward pass)",
       color: SER.s1,
       tm: (S) => (8 * S.B * S.D * S.k * S.F) / (S.X * S.C),
       tc: (S) => (8 * S.D * S.E * S.F) / (S.Wici * S.MX),
-      tmFormula: "T_math = 8·B·D·k·F / (X·C)",
-      tcFormula: "T_comms = 8·D·E·F / (Wici·MX)",
+      tmFormula: () => "T_math = 8·B·D·k·F / (" + Core.axisName("X") + "·C)",
+      tcFormula: () => "T_comms = 8·D·E·F / (Wici·" + Core.axisName("MX") + ")",
     },
     fsdp: {
-      label: "FSDP (forward pass)",
+      label: () => "FSDP (forward pass)",
       color: SER.s1,
       tm: (S) => (4 * S.B * S.D * S.k * S.F) / (S.X * S.C),
       tc: (S) => (4 * S.D * S.E * S.F) / (S.Wici * S.MX),
-      tmFormula: "T_math = 4·B·D·k·F / (X·C)",
-      tcFormula: "T_comms = 4·D·E·F / (Wici·MX)",
+      tmFormula: () => "T_math = 4·B·D·k·F / (" + Core.axisName("X") + "·C)",
+      tcFormula: () => "T_comms = 4·D·E·F / (Wici·" + Core.axisName("MX") + ")",
     },
     tp: {
-      label: "tensor parallelism (forward pass)",
+      label: () => "tensor parallelism (forward pass)",
       color: SER.s2,
       tm: (S) => (4 * S.B * S.D * S.k * S.F) / (S.Y * S.C),
       tc: (S) => (4 * S.B * S.D) / (S.Wici * S.MY),
-      tmFormula: "T_math = 4·B·D·k·F / (Y·C)",
-      tcFormula: "T_comms = 4·B·D / (Wici·MY)",
+      tmFormula: () => "T_math = 4·B·D·k·F / (" + Core.axisName("Y") + "·C)",
+      tcFormula: () => "T_comms = 4·B·D / (Wici·" + Core.axisName("MY") + ")",
     },
     mixed: {
-      label: "FSDP + TP (forward pass, N = X·Y)",
+      label: () => "FSDP + TP (forward pass, N = " + Core.axisName("X") + "·" + Core.axisName("Y") + ")",
       color: SER.s3,
       tm: (S) => (4 * S.B * S.D * S.k * S.F) / (S.X * S.Y * S.C),
       tc: (S) => Math.max(
         (4 * S.D * S.E * S.F) / (S.Y * S.Wici * S.MX),
         (4 * S.B * S.D) / (S.X * S.Wici * S.MY)
       ),
-      tmFormula: "T_math = 4·B·D·k·F / (N·C)",
-      tcFormula: "T_comms = max(4·D·E·F / (Y·Wici·MX), 4·B·D / (X·Wici·MY))",
+      tmFormula: () => "T_math = 4·B·D·k·F / (N·C)",
+      tcFormula: () => "T_comms = max(4·D·E·F / (" + Core.axisName("Y") + "·Wici·" + Core.axisName("MX") +
+        "), 4·B·D / (" + Core.axisName("X") + "·Wici·" + Core.axisName("MY") + "))",
     },
     dcn: {
-      label: "cross-pod data parallelism over DCN (backward pass)",
+      label: () => "cross-pod data parallelism over DCN (backward pass)",
       color: SER.s1,
       tm: (S) => (8 * S.B * S.D * S.k * S.F) / (S.X * S.Y * S.C),
       tc: (S) => (8 * S.D * S.E * S.F) / (S.podSize * S.Wdcn),
-      tmFormula: "T_math = 8·B·D·k·F / (N·C)",
-      tcFormula: "T_comms = 8·D·E·F / (podSize·Wdcn)",
+      tmFormula: () => "T_math = 8·B·D·k·F / (N·C)",
+      tcFormula: () => "T_comms = 8·D·E·F / (podSize·Wdcn)",
     },
   };
 
@@ -92,7 +95,7 @@
     const scheme = BOUND_SCHEMES[(opts && opts.scheme) || "dp"] || BOUND_SCHEMES.dp;
     const uid = "bm-hatch-" + (++uidCounter);
 
-    const title = div("w-title", "Per-layer clock check — " + scheme.label);
+    const title = div("w-title"); // text set each render (scheme label may name axes)
     const legend = div("legend");
     function rectKey(label, css) {
       const lg = div("lg");
@@ -123,6 +126,7 @@
     let lastSpan = 0;
 
     function render(S) {
+      title.textContent = "Per-layer clock check — " + scheme.label();
       const tm = scheme.tm(S);
       const tc = scheme.tc(S);
       const W = 720, left = 128, right = 84;
@@ -137,7 +141,7 @@
       const svg = h("svg", {
         viewBox: `0 0 ${W} ${H}`, role: "img",
         "aria-label": "bar meter comparing per-layer compute time " + Core.fmt(tm, "time") +
-          " against communication time " + Core.fmt(tc, "time") + " for " + scheme.label,
+          " against communication time " + Core.fmt(tc, "time") + " for " + scheme.label(),
       });
       svg.style.width = "100%";
 
@@ -150,7 +154,7 @@
 
       // T_math bar (near-ink reference)
       const mathBar = h("rect", { x: left, y: y1, width: Math.max(1, xw(tm) - left), height: barH, rx: 4, fill: INKBAR },
-        h("title", {}, scheme.tmFormula + " = " + Core.fmt(tm, "time")));
+        h("title", {}, scheme.tmFormula() + " = " + Core.fmt(tm, "time")));
       svg.appendChild(mathBar);
       // data-end square at baseline (4px, rounded)
       svg.appendChild(h("rect", { x: xw(tm) - 2, y: y1 + barH - 2, width: 4, height: 4, rx: 1, fill: CHR.ink }));
@@ -159,7 +163,7 @@
       // T_comms bar: hidden part in scheme color, overhang hatched red
       const hiddenT = Math.min(tc, tm);
       const commsBar = h("rect", { x: left, y: y2, width: Math.max(1, xw(hiddenT) - left), height: barH, rx: 4, fill: scheme.color },
-        h("title", {}, scheme.tcFormula + " = " + Core.fmt(tc, "time")));
+        h("title", {}, scheme.tcFormula() + " = " + Core.fmt(tc, "time")));
       svg.appendChild(commsBar);
       if (tc > tm) {
         const pat = h("pattern", { id: uid, width: 6, height: 6, patternUnits: "userSpaceOnUse", patternTransform: "rotate(45)" },
@@ -169,7 +173,7 @@
         svg.appendChild(h("rect", {
           x: xw(tm), y: y2, width: Math.max(1, xw(tc) - xw(tm)), height: barH,
           fill: "url(#" + uid + ")", stroke: RED, "stroke-width": 1, rx: 2,
-        }, h("title", {}, scheme.tcFormula + " — the part past T_math is exposed: chips sit idle for " + Core.fmt(tc - tm, "time"))));
+        }, h("title", {}, scheme.tcFormula() + " — the part past T_math is exposed: chips sit idle for " + Core.fmt(tc - tm, "time"))));
         svg.appendChild(h("text", { x: (xw(tm) + xw(tc)) / 2, y: y2 + barH + 16, "text-anchor": "middle", "font-size": 11, fill: "#8f2222", "font-weight": 600 }, "exposed"));
       } else {
         svg.appendChild(h("text", { x: (xw(tc) + xw(tm)) / 2, y: y2 + barH + 16, "text-anchor": "middle", "font-size": 11, fill: "#075607" },
@@ -207,24 +211,25 @@
      sharding. Vertical capacity tick at HBM; overflow past the
      tick is hatched red with a "doesn't fit" flag.
      ============================================================ */
+  // noteP / noteA are functions: they name mesh axes (Core.axisName, nota toggle).
   const MEM_SCHEMES = {
     dp: {
       label: "pure data parallelism",
       divP: () => 1, divA: (S) => S.X,
-      noteP: "replicated on every chip (÷1)",
-      noteA: "batch sharded over X",
+      noteP: () => "replicated on every chip (÷1)",
+      noteA: () => "batch sharded over " + Core.axisName("X"),
     },
     fsdp: {
       label: "FSDP",
       divP: (S) => S.X, divA: (S) => S.X,
-      noteP: "sharded over X",
-      noteA: "batch sharded over X",
+      noteP: () => "sharded over " + Core.axisName("X"),
+      noteA: () => "batch sharded over " + Core.axisName("X"),
     },
     mixed: {
       label: "FSDP + TP",
       divP: (S) => S.X * S.Y, divA: (S) => S.X * S.Y,
-      noteP: "sharded over N = X·Y",
-      noteA: "sharded over X·Y",
+      noteP: () => "sharded over N = " + Core.axisName("X") + "·" + Core.axisName("Y"),
+      noteA: () => "sharded over " + Core.axisName("X") + "·" + Core.axisName("Y"),
     },
   };
 
@@ -265,11 +270,11 @@
       const actBytes = 2 * S.L * S.B * (S.D + 2 * S.k * S.F);
       const segs = [
         { key: "params", bytes: (2 * P) / dP, color: COLORS.params,
-          tip: "params = 2·P ÷ " + Core.fmt(dP, "int") + " (" + scheme.noteP + ") = " + Core.fmt((2 * P) / dP, "bytes") },
+          tip: "params = 2·P ÷ " + Core.fmt(dP, "int") + " (" + scheme.noteP() + ") = " + Core.fmt((2 * P) / dP, "bytes") },
         { key: "optimizer", bytes: (8 * P) / dP, color: COLORS.optimizer,
-          tip: "optimizer (Adam, fp32 m+v) = 8·P ÷ " + Core.fmt(dP, "int") + " (" + scheme.noteP + ") = " + Core.fmt((8 * P) / dP, "bytes") },
+          tip: "optimizer (Adam, fp32 m+v) = 8·P ÷ " + Core.fmt(dP, "int") + " (" + scheme.noteP() + ") = " + Core.fmt((8 * P) / dP, "bytes") },
         { key: "activations", bytes: actBytes / dA, color: COLORS.activations,
-          tip: "checkpointed activations = 2·L·B·(D+2·k·F) ÷ " + Core.fmt(dA, "int") + " (" + scheme.noteA + ") = " + Core.fmt(actBytes / dA, "bytes") },
+          tip: "checkpointed activations = 2·L·B·(D+2·k·F) ÷ " + Core.fmt(dA, "int") + " (" + scheme.noteA() + ") = " + Core.fmt(actBytes / dA, "bytes") },
       ];
       const total = segs.reduce((a, s) => a + s.bytes, 0);
       const ratio = total / S.HBM;

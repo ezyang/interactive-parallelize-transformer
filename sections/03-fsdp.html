@@ -246,17 +246,17 @@
   the mini-calculator that follows is an addition of this edition. With
   <i class="v v-B">B</i> =
   <span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span>
-  tokens, FSDP scales to X<sub>max</sub> chips before hitting the bandwidth
+  tokens, FSDP scales to <i class="v v-X">X<sub>max</sub></i> chips before hitting the bandwidth
   limit.</span></span></p>
 
   <div class="eq">
-    X<sub>max</sub> =
+    <i class="v v-X">X<sub>max</sub></i> =
     <span class="frac"><span><i class="v v-B">B</i> · <i class="v v-M">M<sub>X</sub></i><span class="t-show inline" data-expr="E>1"> · <i class="v">k</i></span></span><span>α<span class="t-show inline" data-expr="E>1"> · <i class="v">E</i></span></span></span>
     = <span class="t-out" data-expr="B*MX*k/(alpha*E)" data-fmt="chips"></span> chips
     <span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> This
     equation is not in the chapter — it just solves the chapter's bound
-    B/X &gt; α/M<sub>X</sub> (with a MoE loaded, the exact form
-    B/X &gt; (E/k)·α/M<sub>X</sub>) for X, so you can scrub
+    B/<i class="v v-X">X</i> &gt; α/M<sub>X</sub> (with a MoE loaded, the exact form
+    B/<i class="v v-X">X</i> &gt; (E/k)·α/M<sub>X</sub>) for <i class="v v-X">X</i>, so you can scrub
     <i class="v v-B">B</i> and read off the largest compute-bound chip
     count.</span></span>
   </div>

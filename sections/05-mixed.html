@@ -32,7 +32,7 @@
     other cases, there is no duplication of model parameters: each of the
     <i class="v v-N">N</i> = <span class="t-out" data-expr="N" data-fmt="int"></span>
     chips holds a distinct
-    <span class="shape">[D/X, F/Y]</span> =
+    <span class="shape">[D/<i class="v v-X">X</i>, F/<i class="v v-Y">Y</i>]</span> =
     <span class="shape">[<span class="t-out" data-expr="D/X" data-fmt="int"></span>, <span class="t-out" data-expr="F/Y" data-fmt="int"></span>]</span>
     tile of W<sub>in</sub>, and the activations are sharded along both of their
     axes too. Hover a chip to see which shards it owns.</figcaption>
@@ -51,7 +51,7 @@
       in (step 1) and one <span class="op op-rs">ReduceScatter</span> out
       (step 6) of activation bytes; the weight gathers on the
       <i class="v v-X">X</i> axis (steps 2 and 4) can be prefetched. Those two
-      Y-axis activation hops and two X-axis weight hops are exactly the
+      <i class="v v-Y">Y</i>-axis activation hops and two <i class="v v-X">X</i>-axis weight hops are exactly the
       2 · 2 factors in T<sub>TP comms</sub> and T<sub>FSDP comms</sub>
       below.</span></span></p>
       <ol>
@@ -185,15 +185,15 @@
   which occurs when</p>
 
   <div class="eq">
-    <span class="frac"><span><i class="v v-F">F</i> · X<sub>opt</sub></span><span><i class="v v-M">M<sub>X</sub></i></span></span>
-    = <span class="frac"><span><i class="v v-B">B</i> · <i class="v v-N">N</i></span><span>X<sub>opt</sub> · <i class="v v-M">M<sub>Y</sub></i></span></span>
+    <span class="frac"><span><i class="v v-F">F</i> · <i class="v v-X">X<sub>opt</sub></i></span><span><i class="v v-M">M<sub>X</sub></i></span></span>
+    = <span class="frac"><span><i class="v v-B">B</i> · <i class="v v-N">N</i></span><span><i class="v v-X">X<sub>opt</sub></i> · <i class="v v-M">M<sub>Y</sub></i></span></span>
     &nbsp;→&nbsp;
-    X<sub>opt</sub> =
+    <i class="v v-X">X<sub>opt</sub></i> =
     <span class="sqrt"><span><span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-F">F</i></span></span> · <span class="frac"><span><i class="v v-M">M<sub>X</sub></i></span><span><i class="v v-M">M<sub>Y</sub></i></span></span> · <i class="v v-N">N</i></span></span>
   </div>
 
   <div class="eq-live">right now:
-    X<sub>opt</sub> = <span class="t-out" data-expr="sqrt(B*MX*N/(E*F*MY))" data-fmt="sig3"></span><span class="t-show inline" data-expr="E>1"> (the weight term is E·F wide, so E joins F under the radical)</span>
+    <i class="v v-X">X<sub>opt</sub></i> = <span class="t-out" data-expr="sqrt(B*MX*N/(E*F*MY))" data-fmt="sig3"></span><span class="t-show inline" data-expr="E>1"> (the weight term is E·F wide, so E joins F under the radical)</span>
     → nearest power of two:
     <span class="t-out" data-expr="pow(2, round(log2(max(1, min(N, sqrt(B*MX*N/(E*F*MY)))))))" data-fmt="int"></span>
     chips of FSDP, with the current
@@ -206,13 +206,13 @@
   optimal. Let's get a sense of scale. Plugging in realistic values, namely
   <i class="v v-N">N</i> = 64 (corresponding to a 4x4x4 array of chips),
   <i class="v v-B">B</i> = 48,000, <i class="v v-F">F</i> = 32768, gives
-  roughly <span class="eq-i">X ≈ <span class="t-out" data-expr="sqrt(48000*2*64/32768)" data-fmt="sig3"></span></span>.
+  roughly <span class="eq-i"><i class="v v-X">X</i> ≈ <span class="t-out" data-expr="sqrt(48000*2*64/32768)" data-fmt="sig3"></span></span>.
   So we would choose <i class="v v-X">X</i> to be 16 and
   <i class="v v-Y">Y</i> to be 4, close to our calculated
   optimum.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
   The chapter rounds this to ≈13.9; the pinned live value here is
   √(48,000 · 2 · 64 / 32,768) exactly. And at whatever is loaded right now,
-  X<sub>opt</sub> =
+  <i class="v v-X">X<sub>opt</sub></i> =
   <span class="t-out" data-expr="sqrt(B*MX*N/(E*F*MY))" data-fmt="sig3"></span>.
   Press the first button below to load the chapter's exact scenario into the
   whole page.</span></span></p>
@@ -224,7 +224,7 @@
 
   <div class="takeaway"><strong>Takeaway:</strong> in general, during training,
   the optimal amount of FSDP is
-  <span class="eq-i">X<sub>opt</sub> =
+  <span class="eq-i"><i class="v v-X">X<sub>opt</sub></i> =
   <span class="sqrt"><span><span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-F">F</i></span></span> · <span class="frac"><span><i class="v v-M">M<sub>X</sub></i></span><span><i class="v v-M">M<sub>Y</sub></i></span></span> · <i class="v v-N">N</i></span></span></span>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
   You can <em>feel</em> this optimum in the figure below, which holds
   <i class="v v-N">N</i> fixed and sweeps the split. Try: drag the marker to
@@ -247,7 +247,7 @@
     T<sub>math</sub>, and wherever the envelope dips below it the layer is
     compute-bound. Drag the marker: it sets <i class="v v-X">X</i> (and
     <i class="v v-Y">Y</i> = <i class="v v-N">N</i>/<i class="v v-X">X</i>) for
-    the whole page. The dotted drop-line marks X<sub>opt</sub> =
+    the whole page. The dotted drop-line marks <i class="v v-X">X<sub>opt</sub></i> =
     <span class="t-out" data-expr="sqrt(B*MX*N/(E*F*MY))" data-fmt="sig3"></span>.</figcaption>
   </figure>
 
@@ -275,9 +275,9 @@
     <span class="frac"><span><i class="v v-B">B</i> · <i class="v v-F">F</i></span><span><i class="v v-N">N</i> · α</span></span>
   </div>
 
-  <p>Since we calculated X<sub>opt</sub> to make the LHS maximum equal, we can
+  <p>Since we calculated <i class="v v-X">X<sub>opt</sub></i> to make the LHS maximum equal, we can
   just plug it into either side (noting that
-  <span class="eq-i">Y<sub>opt</sub> = <i class="v v-N">N</i>/X<sub>opt</sub></span>),
+  <span class="eq-i"><i class="v v-Y">Y<sub>opt</sub></i> = <i class="v v-N">N</i>/<i class="v v-X">X<sub>opt</sub></i></span>),
   i.e.</p>
 
   <div class="eq">
@@ -352,7 +352,7 @@
   <i class="v v-B">B</i>/<i class="v v-N">N</i> =
   <span class="t-out" data-expr="B/N" data-fmt="int"></span> against the
   threshold — the flip lands right at the ridge (assuming
-  <i class="v v-X">X</i> is near X<sub>opt</sub>; if it's far off, the flip
+  <i class="v v-X">X</i> is near <i class="v v-X">X<sub>opt</sub></i>; if it's far off, the flip
   comes sooner).</span></span></p>
 
   <figure class="breakout">
@@ -432,8 +432,8 @@
   differences in the number of axes for
   each.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
   The chapter's animation swept the FSDP/TP split itself; on this page that
-  sweep is the earlier X-axis explorer, whose optimum at the current state is
-  X<sub>opt</sub> =
+  sweep is the earlier <i class="v v-X">X</i>-axis explorer, whose optimum at the current state is
+  <i class="v v-X">X<sub>opt</sub></i> =
   <span class="t-out" data-expr="sqrt(B*MX*N/(E*F*MY))" data-fmt="sig3"></span>
   → nearest power of two
   <span class="t-out" data-expr="pow(2, round(log2(max(1, min(N, sqrt(B*MX*N/(E*F*MY)))))))" data-fmt="int"></span>-way

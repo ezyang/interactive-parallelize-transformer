@@ -49,6 +49,18 @@
   }
   wire("model-preset");
   wire("hw-preset");
+  // article-settings dashboard (howto box): segmented notation control
+  var dashOpts = document.querySelectorAll("button.dash-opt[data-nota]");
+  dashOpts.forEach(function (btn) {
+    btn.addEventListener("click", function () { Core.set({ nota: Number(btn.dataset.nota) }); });
+  });
+  function dashSync(S) {
+    dashOpts.forEach(function (btn) {
+      btn.setAttribute("aria-pressed", Number(btn.dataset.nota) === S.nota ? "true" : "false");
+    });
+  }
+  Core.subscribe(dashSync);
+  dashSync(Core.get());
 })();
 </script>
 </body>

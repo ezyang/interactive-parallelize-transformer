@@ -81,12 +81,21 @@
     <span class="k"><span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span></span> and watch the per-chip batch
     <span class="k"><span class="t-out" data-expr="B/X" data-fmt="int"></span></span> follow (hover any blue number for its formula). All of them share <em>one</em> model of a training run (the strip pinned above), so a change made anywhere propagates everywhere: equations, diagrams, charts, even the answers to the exercises. And scrub without fear —
     <button class="reset">reset</button> restores every default (it's the same button as in the top bar, which lights up orange whenever you've strayed from the defaults), and any single number reverts on its own when you double-click it and commit it blank.</p>
-    <p style="margin:0"><strong>Whose words are you reading?</strong> The main column is the original chapter's text (© 2022 Maruan Al-Shedivat, © 2025 Google LLC, <a href="LICENSE-scaling-book.txt">MIT license</a>), with four disclosed exceptions:
+    <p style="margin:0"><strong>Whose words are you reading?</strong> The main column is the original chapter's text (© 2022 Maruan Al-Shedivat, © 2025 Google LLC, <a href="LICENSE-scaling-book.txt">MIT license</a>), with a handful of disclosed conventions:
     wherever the chapter printed a fixed number, this page computes it live (these in-place swaps aren't individually marked);
     the interactive figures and their captions replace the original static figures;
     <span class="k">✦&nbsp;margin notes</span> are this adaptation's voice — written by Fable, the Anthropic model that built this edition — instructions, asides, and the added
     <a href="#roofline">roofline primer</a>, <a href="#expert-parallelism">expert parallelism</a>, and <a href="#gpus">GPU network</a> sections;
+    the chapter's mesh-axis names X and Y are rendered <span class="k">DP</span> and <span class="k">TP</span> throughout (a global substitution — switchable in the article settings below);
     where a sentence had to be altered to host a live element, a <span class="k">Δ&nbsp;margin note</span> quotes the original and states the change;
     and where this edition's additions make a chapter statement inaccurate as written, an italic <span class="ed">(Ed:&nbsp;…)</span> interjection corrects it in place.</p>
+    <div class="article-dash" aria-label="article settings">
+      <span class="dash-label">Article settings</span>
+      <span class="dash-item" data-tip="Purely presentational: internal names, links, and shared URLs always use X/Y.">axis notation
+        <span class="dash-seg">
+          <button class="dash-opt" data-nota="0">DP / TP</button><button class="dash-opt" data-nota="1">X / Y (chapter&rsquo;s)</button>
+        </span>
+      </span>
+    </div>
   </div>
 </header>

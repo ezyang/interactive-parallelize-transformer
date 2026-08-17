@@ -169,7 +169,7 @@
   the one-pod recipe first and watch both numbers move.</span></span></p>
 
   <div class="preset-row"><span class="preset-label">Try:</span>
-    <button class="t-preset" data-set='{"B":1000000,"F":30720,"X":1024,"Y":8,"podSize":8960}'>BS = 1M, one pod (X=1024, Y=8)</button>
+    <button class="t-preset" data-set='{"B":1000000,"F":30720,"X":1024,"Y":8,"podSize":8960}'>BS = 1M, one pod (<i class="v v-X">X</i>=1024, <i class="v v-Y">Y</i>=8)</button>
     <button class="t-preset" data-set='{"B":2000000,"F":30720,"X":2240,"Y":8,"podSize":8960}'>BS = 2M, two pods</button>
   </div>
 
@@ -326,8 +326,8 @@
   4M).<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> These
   numbers read from the live state: click the <strong>H800 (DeepSeek)</strong> preset
   above and the ridge becomes the chapter's 3,300 tokens per GPU; on the H100 preset
-  the same spans show 2,200. (Chapter 12 also refines the picture when X is small —
-  spanning exactly 2 nodes rides the ring's (X−1)/X factor for ~2× effective
+  the same spans show 2,200. (Chapter 12 also refines the picture when <i class="v v-X">X</i> is small —
+  spanning exactly 2 nodes rides the ring's (<i class="v v-X">X</i>−1)/<i class="v v-X">X</i> factor for ~2× effective
   bandwidth, which is why you see 2-way data parallelism fairly often; condensed
   here, see Chapter 12. Its MoE refinement — the DP ridge inflates by E/k — now
   lives in <a href="#data-parallelism">Data Parallelism</a>, visible with a MoE
@@ -360,9 +360,9 @@
   (<span class="eq-i"><i class="v v-F">F</i> &gt; <span class="t-out" data-expr="alphaDcn/podSize" data-fmt="int"></span> · (<i class="v v-Y">Y</i> − 8)</span>),
   which gives us up to 19-way model parallelism in
   theory.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> “As
-  with above” refers to Chapter 12's small-X refinement (condensed in the note two
+  with above” refers to Chapter 12's small-<i class="v v-X">X</i> refinement (condensed in the note two
   paragraphs up): a collective spanning exactly 2 nodes only pays the ring's
-  (X−1)/X factor, effectively doubling bandwidth.</span></span></p>
+  (<i class="v v-X">X</i>−1)/<i class="v v-X">X</i> factor, effectively doubling bandwidth.</span></span></p>
 
   <h3>What collectives cost on this fabric<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> This
   heading is the adaptation's; the takeaways and sentences under it are carried

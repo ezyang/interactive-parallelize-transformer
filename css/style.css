@@ -164,6 +164,45 @@ button.reset {
   transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
 button.reset:hover { color: var(--ink); border-color: var(--axis); }
+/* article-settings dashboard: a labeled strip at the foot of the howto box */
+.article-dash {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 1.4rem;
+  margin-top: 0.75rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--grid);
+  font-family: var(--sans);
+  font-size: 0.8rem;
+  color: var(--ink-2);
+}
+.article-dash .dash-label {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+.article-dash .dash-item { display: inline-flex; align-items: center; gap: 0.45rem; }
+.article-dash .dash-seg { display: inline-flex; }
+.article-dash .dash-opt {
+  font-family: var(--sans);
+  font-size: 0.76rem;
+  color: var(--ink-2);
+  background: var(--page);
+  border: 1px solid var(--grid);
+  padding: 0.12rem 0.6rem;
+  cursor: pointer;
+}
+.article-dash .dash-opt:first-child { border-radius: 999px 0 0 999px; }
+.article-dash .dash-opt:last-child { border-radius: 0 999px 999px 0; border-left: none; }
+.article-dash .dash-opt:hover { color: var(--ink); }
+.article-dash .dash-opt[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--surface);
+  border-color: var(--ink);
+}
 /* conspicuous when the state has strayed from the defaults — orange, a
    notification color deliberately distinct from the scrub green */
 button.reset.dirty {
@@ -527,7 +566,9 @@ table.tbl th {
   border-bottom: 2px solid var(--axis);
 }
 table.tbl td.num, table.tbl th.num { text-align: right; font-variant-numeric: tabular-nums; }
-table.tbl.tbl-compact { font-size: 0.78rem; }
+.tbl-wrap { overflow-x: auto; max-width: 100%; }
+.tbl-wrap > table.tbl { margin: 1.2rem 0; }
+table.tbl.tbl-compact { font-size: 0.76rem; }
 table.tbl.tbl-compact th, table.tbl.tbl-compact td { padding: 0.3rem 0.45rem; }
 table.tbl.tbl-compact button.t-preset { font-size: 0.76rem; padding: 0.1rem 0.55rem; }
 /* sortable headers */
@@ -629,6 +670,8 @@ figure { margin: 1.8rem 0; }
   line-height: 1.4;
   color: var(--ink-2);
 }
+.hover-tip.pinned .tip-handle { cursor: grab; }
+.hover-tip.pinned .tip-handle:active { cursor: grabbing; }
 .hover-tip .tip-label {
   font-size: 0.62rem;
   font-weight: 700;

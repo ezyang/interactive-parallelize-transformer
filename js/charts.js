@@ -306,9 +306,9 @@
       const tmath = (B) => (4 * B * S.D * S.k * S.F) / (N * S.C);
       const defs = [
         { label: "T_math (compute, all " + Core.fmt(N, "si") + " chips)", color: CHR.ink, dashed: true, fn: tmath, isMath: true },
-        { label: "data parallel / FSDP comms (over M_X = " + S.MX + (S.MX > 1 ? " axes)" : " axis)"), color: SER.s1, fn: () => (4 * S.D * S.E * S.F) / (S.Wici * S.MX) },
-        { label: "tensor parallel comms (over M_Y = " + S.MY + (S.MY > 1 ? " axes)" : " axis)"), color: SER.s2, fn: (B) => (4 * B * S.D) / (S.Wici * S.MY) },
-        { label: "mixed FSDP+TP (best X,Y) comms", color: SER.s3, fn: (B) => (4 * S.D / S.Wici) * Math.sqrt((B * S.E * S.F) / (S.MX * S.MY * N)) },
+        { label: "data parallel / FSDP comms (over " + Core.axisName("MX") + " = " + S.MX + (S.MX > 1 ? " axes)" : " axis)"), color: SER.s1, fn: () => (4 * S.D * S.E * S.F) / (S.Wici * S.MX) },
+        { label: "tensor parallel comms (over " + Core.axisName("MY") + " = " + S.MY + (S.MY > 1 ? " axes)" : " axis)"), color: SER.s2, fn: (B) => (4 * B * S.D) / (S.Wici * S.MY) },
+        { label: "mixed FSDP+TP (best " + Core.axisName("X") + "," + Core.axisName("Y") + ") comms", color: SER.s3, fn: (B) => (4 * S.D / S.Wici) * Math.sqrt((B * S.E * S.F) / (S.MX * S.MY * N)) },
       ];
       return { defs, tmath };
     }
@@ -445,15 +445,11 @@
     el.innerHTML = "";
     const SCRUB = "#006300";
 
-    const title = div("w-title", "Splitting N chips between FSDP (X) and tensor parallelism (Y = N ÷ X)");
-    const legend = div("legend");
-    legend.appendChild(legendKey(SER.s1, "T_fsdp — weight comms, grows with X"));
-    legend.appendChild(legendKey(SER.s2, "T_tp — activation comms, shrinks with X"));
-    legend.appendChild(legendKey(SER.s3, "max(T_fsdp, T_tp) — what you actually wait for"));
-    legend.appendChild(legendKey(CHR.ink, "T_math — compute per layer", true));
+    const title = div("w-title"); // text set each render (axis names follow the notation toggle)
+    const legend = div("legend"); // rebuilt each render (labels name axes)
     const chart = makeChart({
       W: 720, H: 380, m: { l: 66, r: 26, t: 40, b: 46 },
-      ariaLabel: "log-log chart of FSDP and tensor-parallel communication time versus the FSDP shard count X, for fixed total chips",
+      ariaLabel: "log-log chart of FSDP and tensor-parallel communication time versus the FSDP shard count, for fixed total chips",
     });
     const readout = div("w-readout");
     readout.style.marginTop = "0.35rem";
@@ -487,7 +483,7 @@
       const x = Math.min(f.N, Math.max(1, Math.pow(2, Math.round(Math.log2(Math.max(1, xv))))));
       const a = f.tfsdp(x), b = f.ttp(x);
       return {
-        xLabel: "X = " + Core.fmt(x, "si") + "  (Y = " + Core.fmt(f.N / x, "si") + ")",
+        xLabel: Core.axisName("X") + " = " + Core.fmt(x, "si") + "  (" + Core.axisName("Y") + " = " + Core.fmt(f.N / x, "si") + ")",
         rows: [
           { color: SER.s1, label: "T_fsdp", value: Core.fmt(a, "time") },
           { color: SER.s2, label: "T_tp", value: Core.fmt(b, "time") },
@@ -498,6 +494,15 @@
     }, marker.isDragging);
 
     function render(S) {
+      const aX = Core.axisName("X"), aY = Core.axisName("Y");
+      title.textContent = "Splitting N chips between FSDP (" + aX + ") and tensor parallelism (" + aY + " = N ÷ " + aX + ")";
+      legend.innerHTML = "";
+      legend.appendChild(legendKey(SER.s1, "T_fsdp — weight comms, grows with " + aX));
+      legend.appendChild(legendKey(SER.s2, "T_tp — activation comms, shrinks with " + aX));
+      legend.appendChild(legendKey(SER.s3, "max(T_fsdp, T_tp) — what you actually wait for"));
+      legend.appendChild(legendKey(CHR.ink, "T_math — compute per layer", true));
+      chart.svg.setAttribute("aria-label",
+        "log-log chart of FSDP and tensor-parallel communication time versus the FSDP shard count " + aX + ", for fixed total chips");
       const f = fns(S);
       const N = f.N;
       const X1 = Math.max(2, N);
@@ -524,7 +529,7 @@
       }
       chart.drawGrid({
         xTicks, yFmt: "time",
-        xLabel: "X — chips spent on FSDP (Y = N ÷ X on tensor parallelism)",
+        xLabel: aX + " — chips spent on FSDP (" + aY + " = N ÷ " + aX + " on tensor parallelism)",
         yLabel: "time per layer",
       });
 
@@ -582,12 +587,12 @@
         chart.layers.anno.appendChild(h("text", {
           x: chart.px(xOpt), y: yTop - 6, "text-anchor": "middle",
           "font-size": 10.5, fill: CHR.ink2, "font-weight": 600,
-        }, "X_opt ≈ " + Core.fmt(xOpt, "si")));
+        }, aX + "_opt ≈ " + Core.fmt(xOpt, "si")));
       }
 
       // marker at current X
       const xNow = Math.min(X1, Math.max(1, S.X));
-      marker.setX(xNow, "X = " + Core.fmt(S.X, "si") + " · Y = " + Core.fmt(S.Y, "si"));
+      marker.setX(xNow, aX + " = " + Core.fmt(S.X, "si") + " · " + aY + " = " + Core.fmt(S.Y, "si"));
 
       // readout row: X, Y, T_fsdp, T_tp, T_math, verdict pill
       const a = f.tfsdp(S.X), b = f.ttp(S.X);
@@ -595,7 +600,7 @@
       const ok = fin(f.tmath) && fin(comms) && f.tmath >= comms;
       readout.textContent = "";
       readout.appendChild(document.createTextNode(
-        "X = " + Core.fmt(S.X, "si") + " · Y = " + Core.fmt(S.Y, "si") +
+        aX + " = " + Core.fmt(S.X, "si") + " · " + aY + " = " + Core.fmt(S.Y, "si") +
         " · T_fsdp " + Core.fmt(a, "time") + " · T_tp " + Core.fmt(b, "time") +
         " · T_math " + Core.fmt(f.tmath, "time") + "  "));
       const pill = document.createElement("span");

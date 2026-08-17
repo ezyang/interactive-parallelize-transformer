@@ -59,7 +59,7 @@ number — every equation, meter, and verdict below recomputes.</span></span></p
     <span class="shape">dW<sub>out</sub>[F, D]</span>,
     <span class="shape">dW<sub>in</sub>[D, F]</span><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
     The <span class="shape">{U<sub>X</sub>}</span> annotation below marks a
-    result that is <em>unreduced</em> over the X axis: each chip holds a
+    result that is <em>unreduced</em> over the <i class="v v-X">X</i> axis: each chip holds a
     partial sum from its own slice of the batch.</span></span></p>
     <ol>
       <li><span class="shape">dOut[B<sub>X</sub>, D]</span> = …</li>
@@ -323,7 +323,7 @@ inflates this per-chip floor by E/k =
     of <span class="t-out" data-expr="alpha/MX" data-fmt="int"></span> tokens
     inflates to (E/k) · C/(W<sub>ici</sub>·M<sub>X</sub>) =
     <span class="t-out" data-expr="(E/k)*alpha/MX" data-fmt="int"></span> — vs the
-    current B/X =
+    current B/<i class="v v-X">X</i> =
     <span class="t-out" data-expr="B/X" data-fmt="int"></span> tokens/chip →
     <span class="t-if" data-expr="B/X &gt; (E/k)*alpha/MX" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
   </div>

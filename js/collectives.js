@@ -295,7 +295,7 @@
       readout.textContent =
         "bytes = " + bytesExpr.replace(/\*/g, "·") + " = " + Core.fmt(bytes, "bytes") +
         " · over M = " + Core.fmt(M, "int") + (M > 1 ? " ICI axes" : " ICI axis") +
-        " · T = " + k + "·bytes ÷ (Wici·" + axisVar + ") = " + Core.fmt(time, "time");
+        " · T = " + k + "·bytes ÷ (Wici·" + Core.axisName(axisVar) + ") = " + Core.fmt(time, "time");
       if (arTime) {
         arTime.textContent = "AllReduce · " + Core.fmt(time, "time");
         rsTime.textContent = "ReduceScatter · " + Core.fmt(time / 2, "time");
