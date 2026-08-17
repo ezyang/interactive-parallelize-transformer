@@ -1,7 +1,11 @@
 # EDITS-LOG — sweep outcomes (single writer: Fable)
 
+> **INBOX: clear** as of 2026-08-17, commit a0b25b0 · EDITS.md md5 `7473a131656d98f7da67970a96379fe7`
+> (If `md5 -q EDITS.md` no longer matches, the difference is unswept.)
+
 One line per processed inbox item: ✓ done (commit) · ✗ skipped (why) · ? question.
 Items already quoted here won't be re-processed on later sweeps.
+Fable updates the INBOX stamp above at the end of every sweep and states it in chat.
 
 ---
 
