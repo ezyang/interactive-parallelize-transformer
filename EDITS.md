@@ -32,3 +32,16 @@ Fable never writes to this file. Append items below; delete old ones whenever
 - The spec -> measured numbers seem oddly setup. It claims the measured number
   is just C. Which is ... true but the green highlight is lying; I want to be
   scrubbing the actual value.  Maybe you fixed it?
+
+- Let's hide the Z variable when you're doing GPU, the TPU mesh text should
+  get disappeared when we're doing GPUs.  It might be better to stick to X, Y, Z
+  for TPU by default, I'm not sure.
+
+- nit: For the k entries on the table, maybe we should say 8+1 instead of 9 to
+  make the regular/shared split clearer?  It should still sort in the normal way.
+
+- nit: the tooltips in the hardware table don't persist if clicked. ALL
+  tooltips should persist if you click. (A refactor in order?)
+
+- The sources in the hardware table don't seem sufficient.  I'm expecting
+  links. I'm expecting methodology when we're doing novel synthesis of research.

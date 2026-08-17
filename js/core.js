@@ -532,18 +532,26 @@
     el.setAttribute("role", "slider");
     el.setAttribute("aria-valuemin", String(min));
     el.setAttribute("aria-valuemax", String(max));
+    // in measured mode the green C/W numbers show (and edit) the EFFECTIVE
+    // value the page actually computes with; the spec value stays in state
+    const EFF_KEY = { C: "effC", Wici: "effIci", Wdcn: "effDcn" }[key];
+    const effF = () => (EFF_KEY && state.meas ? state[EFF_KEY] : 1);
+    const shown = () => state[key] * effF();
+
+    const codeLine = () => key + " = " + shortNum(shown()) +
+      (effF() !== 1 ? "   (measured — spec " + shortNum(state[key]) + " × " + shortNum(state[EFF_KEY]) + ")" : "");
     attachHoverTip(el, () => [
       { cls: "tip-label", text: KEY_NAMES[key] || key },
-      { cls: "tip-code", text: key + " = " + shortNum(state[key]) },
+      { cls: "tip-code", text: codeLine(), refresh: codeLine },
       { cls: "tip-sub", text: "range " + shortNum(min) + " … " + shortNum(max) + (el.dataset.snap ? " · snaps to " + el.dataset.snap : "") + " · drag ⟷ · double-click to type (blank = reset)" },
     ]);
 
     let editing = false;
     function render() {
       if (editing) return; // don't clobber the reader's typing
-      el.textContent = fmt(state[key], fmtName);
-      el.setAttribute("aria-valuenow", String(state[key]));
-      el.setAttribute("aria-valuetext", fmt(state[key], fmtName));
+      el.textContent = fmt(shown(), fmtName);
+      el.setAttribute("aria-valuenow", String(shown()));
+      el.setAttribute("aria-valuetext", fmt(shown(), fmtName));
     }
     subscribe(render);
     render();
@@ -567,7 +575,7 @@
       el.classList.add("editing");
       el.setAttribute("contenteditable", "plaintext-only");
       if (el.contentEditable !== "plaintext-only") el.setAttribute("contenteditable", "true");
-      el.textContent = compactNum(state[key]);
+      el.textContent = compactNum(shown());
       el.focus();
       const r = document.createRange();
       r.selectNodeContents(el);
@@ -582,9 +590,12 @@
       el.removeAttribute("contenteditable");
       el.classList.remove("editing");
       if (commit) {
-        const v = parseTyped(typed);
+        let v = parseTyped(typed);
         if (v != null && isFinite(v)) {
-          // typed values are exact: clamp to range but do NOT snap
+          // typed values are exact: clamp to range but do NOT snap.
+          // (a blank commit already came back as the raw default; anything
+          // typed is in DISPLAY units — divide the measured factor back out)
+          if (typed.trim() !== "") v = v / effF();
           set({ [key]: clamp(key, Math.min(max, Math.max(min, v))) });
         }
       }
@@ -1015,8 +1026,11 @@
     const section = paper.querySelector("section") || paper;
     const colRight = section.getBoundingClientRect().right - paperRect.left;
     const gutter = 26;
-    const noteW = Math.min(16 * 16, Math.max(160, paperRect.width - colRight - gutter - 4));
     const left = colRight + gutter;
+    // notes may overflow the paper's right edge — size them to the real
+    // viewport room (capped), not the paper's own thin margin column
+    const viewRoom = document.documentElement.clientWidth - (paperRect.left + left) - 18;
+    const noteW = Math.max(160, Math.min(19 * 16, viewRoom));
 
     // breakout figures intrude into the margin column — treat them as obstacles
     const blockers = [];
@@ -1103,9 +1117,11 @@
         if (a.rects.some((r) => px >= r.left && px <= r.right && py >= r.top && py <= r.bottom)) { hit = a; break; }
       }
       if (hit === hotSn) return;
-      if (hotSn) hotSn.body.classList.remove("sn-hot");
+      // hovering the sentence highlights the pair: the margin note AND the
+      // sentence itself (same highlight the ◦ marker hover uses)
+      if (hotSn) { hotSn.body.classList.remove("sn-hot"); clearAnchorHighlight(); }
       hotSn = hit;
-      if (hotSn) hotSn.body.classList.add("sn-hot");
+      if (hotSn) { hotSn.body.classList.add("sn-hot"); setAnchorHighlight(hotSn.sn); }
     });
   }, { passive: true });
 
