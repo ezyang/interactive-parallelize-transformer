@@ -22,44 +22,45 @@ matrix multiplications often require expensive
 useful work. The goal of this section is to find out when these become
 <em>too expensive.</em></p>
 
-<p>In this section, we'll discuss four common parallelism schemes: (pure)
+<p>In this section, we'll discuss five common parallelism schemes: (pure)
 <strong>data parallelism, fully-sharded data parallelism</strong> (FSDP / ZeRO
 sharding), <strong>tensor parallelism</strong> (also known as model parallelism),
+<span class="add"><strong>expert parallelism</strong> (for Mixture-of-Experts models),</span>
 and (briefly) <strong>pipeline parallelism</strong>. For each, we'll show what
 communication cost we incur and at what point that cost starts to bottleneck our
 compute cost.<span class="sn"><button class="sn-ref" aria-label="sidenote">◦</button><span class="sn-body">We'll
 focus on communication bounds — since while memory capacity constraints are
 important, they typically do not bound us when using rematerialization
 (activation checkpointing) and a very large number of chips during pre-training.
-We also do not discuss expert parallelism here for MoEs — which expands the
-design space substantially, only the base case of a dense
-Transformer. <span class="ed">(Ed: this edition does — Chapter&nbsp;12's
-expert-parallelism treatment is merged into the flow as
-<a href="#expert-parallelism">its own section</a>, live whenever a MoE model is
-loaded.)</span></span></span> For this section, you can focus solely on inter-chip
+<span class="ed">(Ed: This edition is expanded to discuss
+<a href="#expert-parallelism">expert parallelism</a>, unlike the
+original.)</span></span></span> For this section, you can focus solely on inter-chip
 communication costs, since as long as we have a large enough single-chip batch
 size, the transfer of data from HBM to MXU is already overlapped with
 computation.</p>
 
 <p>We'll use the following notation to simplify calculations throughout this
-section.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
-The notation is <em>alive</em>: the green values below are the page's one shared
-model — drag them and everything recomputes. Hover any colored letter for its
-meaning.</span></span></p>
+section.</p>
+
+<div class="eq-live" style="text-align: left; margin: -0.4rem 0 0.9rem;">live values shown for:
+  <select id="model-preset-2" aria-label="model preset" class="inline-select"></select>
+  (mirrors the top bar)</div>
 
 <table class="tbl">
-  <thead><tr><th>Notation</th><th>Meaning (model parameters)</th><th>Live value<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
-  This column is the adaptation's; the chapter's tables have only the first
-  two.</span></span></th></tr></thead>
+  <thead><tr><th>Notation</th><th>Meaning (model parameters)</th><th>Live value</th></tr></thead>
   <tbody>
     <tr><td><i class="v v-D">D</i></td><td><strong>d</strong><sub>model</sub> (the hidden dimension/residual stream dim)</td>
       <td><span class="t-var" data-var="D" data-min="512" data-max="65536" data-scale="log" data-snap="pow2" data-fmt="int"></span></td></tr>
     <tr><td><i class="v v-F">F</i></td><td><strong>d</strong><sub>ff</sub> (the feed-forward dimension)<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
-      <strong>F convention (everywhere):</strong> the width of <em>one expert</em>
-      (= d<sub>ff</sub> when dense). Math runs through k·<i class="v v-F">F</i>;
-      weights hold E·<i class="v v-F">F</i>; the chapter's equations are the
-      E&nbsp;=&nbsp;k&nbsp;=&nbsp;1 case. (Chapter&nbsp;12's resolution — hover any
-      <i class="v v-F">F</i> for the live widths.)</span></span></td>
+      <strong>F convention (everywhere):</strong> the width of <em>one
+      expert</em> (= d<sub>ff</sub> when dense); math runs through
+      k·<i class="v v-F">F</i>, weights hold E·<i class="v v-F">F</i>, and the
+      chapter's equations are the E&nbsp;=&nbsp;k&nbsp;=&nbsp;1 case
+      (Chapter&nbsp;12's resolution). One honest limitation: models that mix
+      dense and MoE blocks have <em>two</em> genuinely different F's —
+      DeepSeek-V3 runs its first three layers dense at a much wider width —
+      and this page approximates such models as uniformly MoE. Hover any
+      <i class="v v-F">F</i> for the live widths.</span></span></td>
       <td><span class="t-var" data-var="F" data-min="512" data-max="262144" data-scale="log" data-snap="pow2" data-fmt="int"></span></td></tr>
     <tr><td><i class="v v-B">B</i></td><td>Batch dimension (number of tokens in the batch; total, not per-device)</td>
       <td><span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span></td></tr>
@@ -80,7 +81,7 @@ meaning.</span></span></p>
       <td><span class="t-out" data-expr="X" data-fmt="int"></span></td></tr>
     <tr><td><i class="v v-Y">Y</i></td><td>Number of chips along an alternate mesh axis, labeled <i class="v v-Y">Y</i></td>
       <td><span class="t-out" data-expr="Y" data-fmt="int"></span></td></tr>
-    <tr><td><i class="v v-Z">Z</i></td><td>Number of chips along a third mesh axis, labeled Z</td>
+    <tr><td><i class="v">Z</i></td><td>Number of chips along a third mesh axis, labeled Z</td>
       <td><span class="t-out" data-expr="Z" data-fmt="int"></span></td></tr>
   </tbody>
 </table>
@@ -94,13 +95,11 @@ meaning.</span></span></p>
 <details class="algo" open>
   <summary>✦ adaptation — this notation, worn by today's frontier open-source models (click a model to load its shape)</summary>
   <p>The chapter's examples are dense LLaMA-era models; the frontier has since gone
-  Mixture-of-Experts. The shapes below come from each model's published
-  <code>config.json</code> on Hugging Face (parameter totals from its safetensors
-  metadata; retrieved August 2026).<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
-  E and k count shared experts (DeepSeek-V3: 256+1 routed/shared → E&nbsp;257,
-  k&nbsp;9), so k·<i class="v v-F">F</i> is exact. Column headers explain each
-  field; Kimi K3's latent MoE makes its F the roughest (3,072 latent vs 3,584
-  routed width — we use latent).</span></span></p>
+  Mixture-of-Experts.<span class="sn adapt"><button class="sn-ref" aria-label="source note">✦</button><span class="sn-body">Shapes
+  from each model's published <code>config.json</code> on Hugging Face; parameter
+  totals from its safetensors metadata. Retrieved August 2026.</span></span>
+  E and k count shared experts, so k·<i class="v v-F">F</i> is the exact
+  activated width; column headers explain each field.</p>
   <div class="tbl-wrap"><table class="tbl tbl-compact sortable">
     <thead><tr>
       <th data-tip="Click a model name to load its shape (D, F, L) into the page's shared state; click this header to sort alphabetically.">Model</th>
@@ -113,9 +112,15 @@ meaning.</span></span></p>
       <th class="num" data-tip="Experts activated per token, INCLUDING always-on shared experts — equal to Chapter 12's plain top-k whenever there are no shared experts.">k</th>
     </tr></thead>
     <tbody>
-      <tr><td><button class="t-preset" data-set='{"D":7168,"F":2048,"L":61,"E":257,"k":9}'>DeepSeek-V3</button></td>
+      <tr><td><button class="t-preset" data-set='{"D":7168,"F":2048,"L":61,"E":257,"k":9}'>DeepSeek-V3</button><span class="sn adapt"><button class="sn-ref" aria-label="note">✦</button><span class="sn-body">Counting
+example: 256 routed + 1 shared expert → E&nbsp;257; top-8 + shared →
+k&nbsp;9. Its first three layers are actually dense (see the F-convention
+note above).</span></span></td>
         <td class="num">685B</td><td class="num">7,168</td><td class="num">2,048</td><td class="num">18,432</td><td class="num">61</td><td class="num">257</td><td class="num">9</td></tr>
-      <tr><td><button class="t-preset" data-set='{"D":7168,"F":3072,"L":93,"E":898,"k":18}'>Kimi K3</button></td>
+      <tr><td><button class="t-preset" data-set='{"D":7168,"F":3072,"L":93,"E":898,"k":18}'>Kimi K3</button><span class="sn adapt"><button class="sn-ref" aria-label="note">✦</button><span class="sn-body">K3's
+latent-MoE architecture makes its per-expert F the roughest here: the config
+lists a 3,072 latent width and a 3,584 routed-expert width; we use the
+latent width.</span></span></td>
         <td class="num">2.78T</td><td class="num">7,168</td><td class="num">≈3,072</td><td class="num">≈55,296</td><td class="num">93</td><td class="num">898</td><td class="num">18</td></tr>
       <tr><td><button class="t-preset" data-set='{"D":6144,"F":2048,"L":78,"E":257,"k":9}'>GLM-5.2</button></td>
         <td class="num">753B</td><td class="num">6,144</td><td class="num">2,048</td><td class="num">18,432</td><td class="num">78</td><td class="num">257</td><td class="num">9</td></tr>

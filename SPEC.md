@@ -52,6 +52,29 @@ Variables, defaults, meaning (all plain numbers):
 | k | 1 | MoE: experts activated per token (routed top-k; shared experts are folded into F, not k) |
 | EP | 8 | expert-parallel degree (chapter-12 calls this axis Z; we rename to avoid the pipeline-stage Z) |
 
+### HARDWARE EPIC (staged; SOURCES.md is ground truth once it exists)
+① SOURCES.md: every hardware number the page uses — spec AND measured — with a
+   primary-source URL, the exact quoted figure, and retrieval date. Estimated
+   values are marked ESTIMATE with reasoning.
+② Hardware provenance table (id="hardware-table", after the notation tables,
+   mirroring the model table): one row per preset (click-to-load), columns
+   C spec/measured · W_link · W_scale-out · HBM; every cell carries a data-tip
+   citing its source verbatim from SOURCES.md; ≈ marks estimates. All spec
+   numbers currently in presets must be reconciled against SOURCES.md.
+③ Measured mode: state keys meas (0/1, machine-bar segmented control in the
+   Hardware group), effC/effIci/effDcn (defaults 1, set per hardware preset from
+   SOURCES.md). Derived effective values Ce/Wie/Wde = raw × (meas ? eff : 1);
+   alpha and alphaDcn are redefined on effective values; the formula sweep moves
+   every direct C/Wici/Wdcn use in live chrome and widgets to Ce/Wie/Wde.
+   In measured mode the MFU tooltip re-describes itself as losses beyond
+   sustained matmul (no silent double-counting). Chapter .eq blocks stay verbatim.
+④ Hardware terminology layer: term tokens (like the axis-notation layer) render
+   hardware-dependent words per the gpu flag — TPU↔GPU, pod↔node, ICI↔NVLink,
+   MXU↔tensor core, SuperPod↔SU… TPU mode = the chapter's exact wording;
+   GPU mode is a disclosed global transformation (howto convention line).
+   Sentences that cannot survive word-swap become t-show variant pairs, with
+   chapter-12 text supplying GPU variants where it has them.
+
 ### AXIS-NOTATION TOGGLE (rendering-layer only)
 The chapter names its mesh axes X (data/FSDP) and Y (tensor parallelism); this
 page renders them **DP** and **TP** by default, with a machine-bar toggle back

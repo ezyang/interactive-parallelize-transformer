@@ -47,8 +47,15 @@
       if (!matched) sel.value = "custom";
     });
   }
+  // the inline model select mirrors the top bar's options
+  (function () {
+    var top = document.getElementById("model-preset");
+    var mirror = document.getElementById("model-preset-2");
+    if (top && mirror) mirror.innerHTML = top.innerHTML;
+  })();
   wire("model-preset");
   wire("hw-preset");
+  wire("model-preset-2");
   // article-settings dashboard (howto box): segmented notation control
   var dashOpts = document.querySelectorAll("button.dash-opt[data-nota]");
   dashOpts.forEach(function (btn) {

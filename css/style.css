@@ -446,6 +446,7 @@ button.t-preset.active { border-color: var(--scrub); color: var(--scrub); }
   .sn-ref { cursor: default; }
   /* hovering either end of the tether highlights the pair */
   .sn:hover .sn-body, .sn:focus-within .sn-body { background: rgba(237, 161, 0, 0.12); }
+  .sn-body.sn-hot { background: rgba(237, 161, 0, 0.12); }
 }
 
 /* ---------- provenance: the margin is the adaptation's voice ----------
@@ -477,6 +478,13 @@ button.t-preset.active { border-color: var(--scrub); color: var(--scrub); }
 /* inline editorial interjection: corrects a chapter statement that this
    edition's merges have made inaccurate as written */
 .ed { font-style: italic; color: #0e7a57; }
+/* woven-in added content: dotted underline, disclosed once in the header */
+.add { text-decoration: underline dotted 1.5px; text-decoration-color: var(--muted); text-underline-offset: 3px; }
+select.inline-select {
+  font-family: var(--sans); font-size: 0.82rem; color: var(--ink);
+  background: transparent; border: none; border-bottom: 1px dotted var(--axis);
+  padding: 0 0.1em; cursor: pointer;
+}
 .ed a { color: inherit; }
 /* an adaptation postscript folded into the same note (avoids doubled ◦✦ markers) */
 .sn-post {
@@ -520,18 +528,18 @@ details.algo > *:not(summary), details.answer > *:not(summary) { margin: 0.8rem 
 .algorithm .phase { font-family: var(--sans); font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0.8em 0 0.2em; }
 .algorithm .cmt { color: var(--muted); font-style: italic; }
 
+/* comms ops: colored text only — the color carries the scannability,
+   the old pill chrome was noise (editor's call, Aug 2026) */
 .op {
   font-family: var(--sans);
-  font-size: 0.78em;
-  font-weight: 600;
-  border-radius: 999px;
-  padding: 0.05em 0.55em;
+  font-size: 0.82em;
+  font-weight: 650;
+  letter-spacing: 0.015em;
   white-space: nowrap;
-  border: 1px solid;
 }
-.op-ag { color: #104281; background: rgba(42, 120, 214, 0.10); border-color: rgba(42, 120, 214, 0.35); }
-.op-rs { color: #7a3413; background: rgba(235, 104, 52, 0.10); border-color: rgba(235, 104, 52, 0.35); }
-.op-ar { color: #3a2b85; background: rgba(74, 58, 167, 0.10); border-color: rgba(74, 58, 167, 0.35); }
+.op-ag { color: #104281; }
+.op-rs { color: #7a3413; }
+.op-ar { color: #3a2b85; }
 
 pre.code {
   background: var(--surface);

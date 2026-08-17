@@ -696,7 +696,7 @@
         return ["network bandwidth — W_ici in-pod, W_dcn between pods", "W_ici = " + fmt(state.Wici, "bw") + "   W_dcn = " + fmt(state.Wdcn, "bw")];
       case "Z":
         if (/E/.test(txt.replace(/^Z/, ""))) return ["expert-parallel degree (chapter 12's Z, renamed Z_E here)", "Z_E = " + fmt(state.EP, "int")];
-        return ["pipeline stages (in the notation table: the third mesh axis)", "Z = " + fmt(state.Z, "int")];
+        return ["pipeline stages", axisName("Z") + " = " + fmt(state.Z, "int")];
       case "E": return ["experts per layer — total holding weights, counting shared", "E = " + fmt(state.E, "int") + "   E·F = " + fmt(state.E * state.F, "si")];
       case "k": return ["experts activated per token, counting shared", "k = " + fmt(state.k, "int") + "   k·F = " + fmt(state.k * state.F, "int")];
       case "M":
@@ -726,32 +726,35 @@
   // The chapter names the mesh axes X/Y; the page renders DP/TP by default.
   // Internal names (state keys, data-expr, URL hash) are ALWAYS X/Y.
   const AXIS_NAMES = {
-    0: { X: "DP", Y: "TP", MX: "M_DP", MY: "M_TP" },
-    1: { X: "X", Y: "Y", MX: "M_X", MY: "M_Y" },
+    0: { X: "DP", Y: "TP", MX: "M_DP", MY: "M_TP", Z: "PP" },
+    1: { X: "X", Y: "Y", MX: "M_X", MY: "M_Y", Z: "Z" },
   };
   function axisName(id) {
     const m = AXIS_NAMES[state.nota] || AXIS_NAMES[0];
     return m[id] || id;
   }
   function displayName(key) { // for tooltip code lines and in-tip scrub tokens
-    return key === "X" || key === "Y" || key === "MX" || key === "MY" ? axisName(key) : key;
+    return key === "X" || key === "Y" || key === "MX" || key === "MY" || key === "Z" ? axisName(key) : key;
   }
 
   const notaNodes = []; // {node, kind:"text"|"sub", axis:"X"|"Y"}
   function initAxisNotation(root) {
     // bare X/Y text inside .v-X / .v-Y tokens
-    root.querySelectorAll(".v-X, .v-Y").forEach((el) => {
-      const axis = el.classList.contains("v-X") ? "X" : "Y";
+    root.querySelectorAll(".v-X, .v-Y, .v-Z").forEach((el) => {
+      const axis = el.classList.contains("v-X") ? "X" : el.classList.contains("v-Y") ? "Y" : "Z";
+      if (axis === "Z" && el.querySelector("sub") && /E/.test(el.querySelector("sub").textContent)) {
+        return; // Z_E is the expert-parallel axis, not pipeline stages
+      }
       for (const n of el.childNodes) {
         if (n.nodeType === 3 && n.textContent.trim() === axis) {
           notaNodes.push({ node: n, kind: "text", axis });
         }
       }
     });
-    // subscript X/Y anywhere in the static page (array shardings, M_X, X_opt, AllGather_Y …)
+    // subscript X/Y/Z anywhere in the static page (array shardings, M_X, L_Z, AllGather_Y …)
     root.querySelectorAll(".paper sub").forEach((sub) => {
       const t = sub.textContent.trim();
-      if ((t === "X" || t === "Y") && !sub.closest("[data-widget]")) {
+      if ((t === "X" || t === "Y" || t === "Z") && !sub.closest("[data-widget]")) {
         notaNodes.push({ node: sub, kind: "sub", axis: t });
       }
     });
@@ -923,8 +926,10 @@
       it.body.style.position = "absolute";
       it.body.style.left = left + "px";
       it.body.style.width = noteW + "px";
-      let y = Math.max(it.anchorTop - 4, lastBottom + 10);
       const hgt = it.body.offsetHeight;
+      // center the note on its anchor line (reduces downstream shunting);
+      // collisions still push it below its predecessor
+      let y = Math.max(it.anchorTop - hgt / 2, lastBottom + 10);
       let moved = true;
       while (moved) { // slide down past any figure the note would overlap
         moved = false;
@@ -940,8 +945,46 @@
 
   function scheduleMarginLayout() {
     clearTimeout(mnTimer);
-    mnTimer = setTimeout(layoutMarginNotes, 80);
+    mnTimer = setTimeout(() => { layoutMarginNotes(); anchorRectCache = null; }, 80);
   }
+
+  // ---------- sentence-hover → margin-note highlight ----------
+  // rAF-throttled hit test against cached page-coordinate rects of each
+  // note's anchor sentence; cache invalidates whenever the margin re-lays-out.
+  let anchorRectCache = null;
+  let hotSn = null, hitPending = false;
+  function buildAnchorRects() {
+    anchorRectCache = [];
+    if (!mnQuery.matches) return;
+    document.querySelectorAll(".sn").forEach((sn) => {
+      const body = sn.querySelector(".sn-body");
+      if (!body || !body.classList.contains("laid")) return;
+      const range = anchorRangeFor(sn);
+      if (!range) return;
+      const rects = Array.from(range.getClientRects()).map((r) => ({
+        left: r.left, right: r.right,
+        top: r.top + window.scrollY, bottom: r.bottom + window.scrollY,
+      }));
+      if (rects.length) anchorRectCache.push({ sn, body, rects });
+    });
+  }
+  document.addEventListener("pointermove", (ev) => {
+    if (hitPending || !mnQuery.matches) return;
+    hitPending = true;
+    const px = ev.clientX, py = ev.clientY + window.scrollY;
+    requestAnimationFrame(() => {
+      hitPending = false;
+      if (!anchorRectCache) buildAnchorRects();
+      let hit = null;
+      for (const a of anchorRectCache) {
+        if (a.rects.some((r) => px >= r.left && px <= r.right && py >= r.top && py <= r.bottom)) { hit = a; break; }
+      }
+      if (hit === hotSn) return;
+      if (hotSn) hotSn.body.classList.remove("sn-hot");
+      hotSn = hit;
+      if (hotSn) hotSn.body.classList.add("sn-hot");
+    });
+  }, { passive: true });
 
   // ---------- widget registry ----------
   const factories = {};
