@@ -44,6 +44,7 @@
   --dim-W: #52514e;
   --dim-PP: #00695f;
   --dim-EP: #6d28d9;
+  --dim-T: #52514e;
   --dim-M: #ad2f2f;
   --dim-E: #6d28d9;
   --dim-k: #0e7a57;
@@ -283,14 +284,21 @@ button.t-preset.active { border-color: var(--scrub); color: var(--scrub); }
 .v-W { color: var(--dim-W); }
 .v-PP { color: var(--dim-PP); }
 .v-EP { color: var(--dim-EP); }
+.v-T { color: var(--dim-T); }
 .v-M { color: var(--dim-M); }
 .v-E { color: var(--dim-E); }
 .v-k { color: var(--dim-k); }
 
+/* live table rows: the row matching the page state shows live values */
+tr.live-row td[data-live] .cell-static,
+tr.live-row td[data-live-expr] .cell-static { display: none; }
+tr:not(.live-row) td[data-live] .cell-live,
+tr:not(.live-row) td[data-live-expr] .cell-live { display: none; }
+
 /* dim hover cross-highlight: core toggles .hl-<dim> on <html> */
 .hl-B .v-B, .hl-D .v-D, .hl-F .v-F, .hl-L .v-L, .hl-DP .v-DP,
 .hl-TP .v-TP, .hl-N .v-N, .hl-C .v-C, .hl-W .v-W, .hl-PP .v-PP, .hl-M .v-M,
-.hl-E .v-E, .hl-k .v-k, .hl-EP .v-EP {
+.hl-E .v-E, .hl-k .v-k, .hl-EP .v-EP, .hl-T .v-T {
   background: rgba(237, 161, 0, 0.28);
 }
 

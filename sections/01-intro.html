@@ -90,20 +90,16 @@ section.</p>
   </tbody>
 </table>
 
-<div class="preset-row"><span class="preset-label">Model shapes to try:</span>
-  <button class="t-preset" data-set='{"D":8192,"F":28672,"L":80,"E":1,"k":1}'>LLaMA-3 70B (chapter default)</button>
-  <button class="t-preset" data-set='{"D":4096,"F":14336,"L":32,"E":1,"k":1}'>LLaMA-3 8B</button>
-  <button class="t-preset" data-set='{"D":16384,"F":65536,"L":128,"E":1,"k":1}'>a ~275B giant</button>
-</div>
-
 <details class="algo" open>
-  <summary>✦ adaptation — this notation, worn by today's frontier open-source models (click a model to load its shape)</summary>
+  <summary>✦ adaptation — this notation, worn by the chapter's dense models and today's frontier open-source ones (click a model to load its shape)</summary>
   <p>The chapter's examples are dense LLaMA-era models; the frontier has since gone
   Mixture-of-Experts.<span class="sn adapt"><button class="sn-ref" aria-label="source note">✦</button><span class="sn-body">Shapes
   from each model's published <code>config.json</code> on Hugging Face; parameter
   totals from its safetensors metadata. Retrieved August 2026.</span></span>
   E and k count shared experts, so k·<i class="v v-F">F</i> is the exact
-  activated width; column headers explain each field.</p>
+  activated width; column headers explain each field. The dense models from the
+  top-bar dropdown lead the table for contrast, and whichever model is loaded
+  shows its row in live green — scrub it right here.</p>
   <div class="tbl-wrap"><table class="tbl tbl-compact sortable">
     <thead><tr>
       <th data-tip="Click a model name to load its shape (D, F, L) into the page's shared state; click this header to sort alphabetically.">Model</th>
@@ -116,26 +112,32 @@ section.</p>
       <th class="num" data-tip="Experts activated per token, INCLUDING always-on shared experts — equal to Chapter 12's plain top-k whenever there are no shared experts.">k</th>
     </tr></thead>
     <tbody>
+      <tr><td><button class="t-preset" data-set='{"D":8192,"F":28672,"L":80,"E":1,"k":1}'>LLaMA-3 70B</button> <span style="color:var(--muted);font-size:0.85em">(chapter default)</span></td>
+        <td class="num">70.6B</td><td class="num" data-live="D">8,192</td><td class="num" data-live="F">28,672</td><td class="num" data-live-expr="k*F">28,672</td><td class="num" data-live="L">80</td><td class="num" data-live="E">1</td><td class="num" data-live="k">1</td></tr>
+      <tr><td><button class="t-preset" data-set='{"D":5120,"F":13824,"L":40,"E":1,"k":1}'>LLaMA-2 13B</button></td>
+        <td class="num">13.0B</td><td class="num" data-live="D">5,120</td><td class="num" data-live="F">13,824</td><td class="num" data-live-expr="k*F">13,824</td><td class="num" data-live="L">40</td><td class="num" data-live="E">1</td><td class="num" data-live="k">1</td></tr>
+      <tr><td><button class="t-preset" data-set='{"D":3072,"F":49152,"L":28,"E":1,"k":1}'>Gemma 7B</button></td>
+        <td class="num">8.54B</td><td class="num" data-live="D">3,072</td><td class="num" data-live="F">49,152</td><td class="num" data-live-expr="k*F">49,152</td><td class="num" data-live="L">28</td><td class="num" data-live="E">1</td><td class="num" data-live="k">1</td></tr>
       <tr><td><button class="t-preset" data-set='{"D":7168,"F":2048,"L":61,"E":257,"k":9}'>DeepSeek-V3</button><span class="sn adapt"><button class="sn-ref" aria-label="note">✦</button><span class="sn-body">Counting
 example: 256 routed + 1 shared expert → E&nbsp;257; top-8 + shared →
 k&nbsp;9. Its first three layers are actually dense (see the F-convention
 note above).</span></span></td>
-        <td class="num">685B</td><td class="num">7,168</td><td class="num">2,048</td><td class="num">18,432</td><td class="num">61</td><td class="num">257</td><td class="num">9</td></tr>
+        <td class="num">685B</td><td class="num" data-live="D">7,168</td><td class="num" data-live="F">2,048</td><td class="num" data-live-expr="k*F">18,432</td><td class="num" data-live="L">61</td><td class="num" data-live="E">257</td><td class="num" data-live="k">9</td></tr>
       <tr><td><button class="t-preset" data-set='{"D":7168,"F":3072,"L":93,"E":898,"k":18}'>Kimi K3</button><span class="sn adapt"><button class="sn-ref" aria-label="note">✦</button><span class="sn-body">K3's
 latent-MoE architecture makes its per-expert F the roughest here: the config
 lists a 3,072 latent width and a 3,584 routed-expert width; we use the
 latent width.</span></span></td>
-        <td class="num">2.78T</td><td class="num">7,168</td><td class="num">≈3,072</td><td class="num">≈55,296</td><td class="num">93</td><td class="num">898</td><td class="num">18</td></tr>
+        <td class="num">2.78T</td><td class="num" data-live="D">7,168</td><td class="num" data-live="F" data-tip="≈ because K3 is a latent MoE: the config lists a 3,072 latent width and a 3,584 routed-expert width; this page uses the latent width (see the margin note by the model name).">≈3,072</td><td class="num" data-live-expr="k*F" data-tip="Inherits the ≈ from F: this is k × the approximate 3,072 latent width.">≈55,296</td><td class="num" data-live="L">93</td><td class="num" data-live="E">898</td><td class="num" data-live="k">18</td></tr>
       <tr><td><button class="t-preset" data-set='{"D":6144,"F":2048,"L":78,"E":257,"k":9}'>GLM-5.2</button></td>
-        <td class="num">753B</td><td class="num">6,144</td><td class="num">2,048</td><td class="num">18,432</td><td class="num">78</td><td class="num">257</td><td class="num">9</td></tr>
+        <td class="num">753B</td><td class="num" data-live="D">6,144</td><td class="num" data-live="F">2,048</td><td class="num" data-live-expr="k*F">18,432</td><td class="num" data-live="L">78</td><td class="num" data-live="E">257</td><td class="num" data-live="k">9</td></tr>
       <tr><td><button class="t-preset" data-set='{"D":7168,"F":3072,"L":61,"E":385,"k":7}'>DeepSeek-V4-Pro</button></td>
-        <td class="num">1.60T</td><td class="num">7,168</td><td class="num">3,072</td><td class="num">21,504</td><td class="num">61</td><td class="num">385</td><td class="num">7</td></tr>
+        <td class="num">1.60T</td><td class="num" data-live="D">7,168</td><td class="num" data-live="F">3,072</td><td class="num" data-live-expr="k*F">21,504</td><td class="num" data-live="L">61</td><td class="num" data-live="E">385</td><td class="num" data-live="k">7</td></tr>
       <tr><td><button class="t-preset" data-set='{"D":8192,"F":2048,"L":92,"E":513,"k":11}'>Qwen3.8-2.4T-A95B</button></td>
-        <td class="num">2.45T</td><td class="num">8,192</td><td class="num">2,048</td><td class="num">22,528</td><td class="num">92</td><td class="num">513</td><td class="num">11</td></tr>
+        <td class="num">2.45T</td><td class="num" data-live="D">8,192</td><td class="num" data-live="F">2,048</td><td class="num" data-live-expr="k*F">22,528</td><td class="num" data-live="L">92</td><td class="num" data-live="E">513</td><td class="num" data-live="k">11</td></tr>
       <tr><td><button class="t-preset" data-set='{"D":6144,"F":3072,"L":66,"E":258,"k":8}'>Inkling</button></td>
-        <td class="num">952B</td><td class="num">6,144</td><td class="num">3,072</td><td class="num">24,576</td><td class="num">66</td><td class="num">258</td><td class="num">8</td></tr>
+        <td class="num">952B</td><td class="num" data-live="D">6,144</td><td class="num" data-live="F">3,072</td><td class="num" data-live-expr="k*F">24,576</td><td class="num" data-live="L">66</td><td class="num" data-live="E">258</td><td class="num" data-live="k">8</td></tr>
       <tr><td><button class="t-preset" data-set='{"D":6144,"F":3072,"L":60,"E":129,"k":5}'>MiniMax-M3</button></td>
-        <td class="num">427B</td><td class="num">6,144</td><td class="num">3,072</td><td class="num">15,360</td><td class="num">60</td><td class="num">129</td><td class="num">5</td></tr>
+        <td class="num">427B</td><td class="num" data-live="D">6,144</td><td class="num" data-live="F">3,072</td><td class="num" data-live-expr="k*F">15,360</td><td class="num" data-live="L">60</td><td class="num" data-live="E">129</td><td class="num" data-live="k">5</td></tr>
     </tbody>
   </table></div>
   <p style="font-family: var(--sans); font-size: 0.8rem; color: var(--muted); margin: 0.6rem 1rem 0.9rem;">
@@ -143,7 +145,8 @@ latent width.</span></span></td>
   (the top bar follows); click a column header to sort. F = per-expert width;
   act. k·F = activated width per token; E / k = total / activated experts,
   counting shared. Notice how tight both width bands are: per-expert F is just
-  2,048 or 3,072 across every model here, and the activated width k·F clusters
+  2,048 or 3,072 across every MoE model here (for the dense rows, the full d_ff
+  is itself the activated width), and the MoE activated width k·F clusters
   between 15k and 25k even as totals span 427B to 2.78T. Since the
   tensor-parallelism bound later in this chapter scales with the activated width
   k·F, that clustering is why the TP limits look so similar across the frontier;

@@ -687,6 +687,7 @@
       case "F": return ["feed-forward width of ONE expert (for a dense model, simply d_ff). A token multiplies through k·F; weights hold E·F.",
         "F = " + fmt(state.F, "int") + (state.k > 1 ? "   k·F = " + fmt(state.k * state.F, "int") + "   E·F = " + fmt(state.E * state.F, "si") : "")];
       case "L": return ["number of layers in the model", "L = " + fmt(state.L, "int")];
+      case "T": return ["sequence length (the page doesn't track it — batch B is already in tokens)", "T — static"];
       case "DP": return ["chips on the data/FSDP-parallel mesh axis (the chapter's X)", "DP = " + fmt(state.DP, "int")];
       case "TP": return ["chips on the tensor-parallel mesh axis (the chapter's Y)", "TP = " + fmt(state.TP, "int")];
       case "N": return ["total chips in the slice, N = DP·TP", "N = " + fmt(state.DP * state.TP, "int")];
@@ -719,6 +720,97 @@
         const m = dimMeaning(dim, el);
         return m ? [{ cls: "tip-label", text: m[0] }, { cls: "tip-code", text: m[1], refresh: () => dimMeaning(dim, el)[1] }] : [];
       }, { pinnable: true });
+    });
+  }
+
+  // ---------- shape tokenizer ----------
+  // Inside <span class="shape">…</span> einsum notation, wrap bare dimension
+  // letters and axis subscripts as .v tokens so they get the same colors and
+  // hover meanings as everywhere else. Runs before initDimTokens.
+  function initShapeTokens(root) {
+    const LETTER_RE = /\b([BDFLTEk])\b/;
+    root.querySelectorAll(".shape").forEach((sh) => {
+      sh.querySelectorAll("sub").forEach((sub) => {
+        const t = sub.textContent.trim();
+        if (/^(B|D|F|L|T|DP|TP|EP|PP)$/.test(t) && !sub.closest(".v")) {
+          sub.classList.add("v", "v-" + t);
+        }
+      });
+      const walker = document.createTreeWalker(sh, NodeFilter.SHOW_TEXT, {
+        acceptNode: (n) => (n.parentElement && n.parentElement.closest(".v"))
+          ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+      });
+      const nodes = [];
+      while (walker.nextNode()) nodes.push(walker.currentNode);
+      for (const n of nodes) {
+        const parts = n.textContent.split(new RegExp(LETTER_RE.source, "g"));
+        if (parts.length < 2) continue;
+        const frag = document.createDocumentFragment();
+        parts.forEach((p, i) => {
+          if (i % 2) {
+            const el = document.createElement("i");
+            el.className = "v v-" + p;
+            el.textContent = p;
+            frag.appendChild(el);
+          } else if (p) frag.appendChild(document.createTextNode(p));
+        });
+        n.parentNode.replaceChild(frag, n);
+      }
+    });
+  }
+
+  // ---------- live table rows ----------
+  // In a table whose rows carry .t-preset[data-set] loaders, cells annotated
+  // data-live="D|F|…" (a state key) or data-live-expr="k*F" grow a live twin;
+  // when the page state matches a row's preset, that row shows the live
+  // (scrubbable/computed) values instead of its printed ones.
+  const LIVE_VAR_ATTRS = {
+    D: { min: "512", max: "65536", snap: "pow2", fmt: "int" },
+    F: { min: "512", max: "262144", scale: "log", snap: "125", fmt: "int" },
+    L: { min: "1", max: "200", scale: "lin", snap: "int", fmt: "int" },
+    E: { min: "1", max: "2048", scale: "log", snap: "pow2", fmt: "int" },
+    k: { min: "1", max: "64", scale: "lin", snap: "int", fmt: "int" },
+  };
+  function initLiveRows(root) {
+    root.querySelectorAll("td[data-live], td[data-live-expr]").forEach((td) => {
+      const stat = document.createElement("span");
+      stat.className = "cell-static";
+      while (td.firstChild) stat.appendChild(td.firstChild);
+      td.appendChild(stat);
+      const live = document.createElement("span");
+      live.className = "cell-live";
+      const key = td.dataset.live;
+      if (key && key in state) {
+        const v = document.createElement("span");
+        v.className = "t-var";
+        v.dataset.var = key;
+        const cfg = LIVE_VAR_ATTRS[key] || {};
+        for (const a in cfg) v.dataset[a] = cfg[a];
+        live.appendChild(v);
+        initVar(v);
+      } else if (td.dataset.liveExpr) {
+        const o = document.createElement("span");
+        o.className = "t-out";
+        o.dataset.expr = td.dataset.liveExpr;
+        o.dataset.fmt = td.dataset.fmt || "int";
+        live.appendChild(o);
+        initOut(o);
+      } else return;
+      td.appendChild(live);
+    });
+    // row activation: state matches the row's preset exactly (on its keys)
+    root.querySelectorAll("tr").forEach((tr) => {
+      if (!tr.querySelector("td[data-live], td[data-live-expr]")) return;
+      const btn = tr.querySelector(".t-preset[data-set]");
+      if (!btn) return;
+      let patch;
+      try { patch = JSON.parse(btn.dataset.set); } catch (e) { return; }
+      const check = () => {
+        const active = Object.keys(patch).every((k) => state[k] === Number(patch[k]));
+        tr.classList.toggle("live-row", active);
+      };
+      subscribe(check);
+      check();
     });
   }
 
@@ -998,7 +1090,12 @@
           th.setAttribute("aria-sort", dir === 1 ? "ascending" : "descending");
           const rows = Array.from(tbody.rows);
           rows.sort((a, b) => {
-            const ta = (a.cells[col] ? a.cells[col].textContent : ""), tb = (b.cells[col] ? b.cells[col].textContent : "");
+            const cellText = (tr) => {
+              if (!tr.cells[col]) return "";
+              const st = tr.cells[col].querySelector(".cell-static");
+              return st ? st.textContent : tr.cells[col].textContent;
+            };
+            const ta = cellText(a), tb = cellText(b);
             const na = sortKeyOf(ta), nb = sortKeyOf(tb);
             if (na != null && nb != null) return dir * (na - nb);
             return dir * ta.trim().localeCompare(tb.trim());
@@ -1041,6 +1138,8 @@
     root.querySelectorAll(".t-if[data-expr]").forEach(initIf);
     root.querySelectorAll(".t-show[data-expr]").forEach(initShow);
     root.querySelectorAll(".t-preset[data-set]").forEach(initPreset);
+    initShapeTokens(root);
+    initLiveRows(root);
     initDimTokens(root);
     initSidenotes(root);
     mountWidgets(root);
