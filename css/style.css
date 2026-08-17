@@ -186,8 +186,6 @@ button.reset:hover { color: var(--ink); border-color: var(--axis); }
   color: var(--surface);
   border-color: var(--ink);
 }
-.machine .eff-out { color: var(--muted); }
-.machine .eff-out .t-out { margin-left: 0.15em; }
 /* conspicuous when the state has strayed from the defaults — orange, a
    notification color deliberately distinct from the scrub green */
 button.reset.dirty {

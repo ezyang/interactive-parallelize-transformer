@@ -200,13 +200,21 @@
     if (changed) notify();
   }
 
+  // The reset button is for the scrubs. Keys owned by the top-bar pickers —
+  // model shape, hardware, spec/measured — survive a reset (the dropdowns are
+  // easy to change on their own).
+  const PRESET_KEYS = ["D", "F", "L", "E", "k",
+    "C", "Wici", "Wdcn", "HBM", "podSize", "gpu", "MDP", "MTP",
+    "effC", "effIci", "effDcn", "meas"];
+  const RESET_KEYS = KEYS.filter((k) => PRESET_KEYS.indexOf(k) < 0);
   function resetAll() {
-    Object.assign(state, DEFAULTS);
-    history.replaceState(null, "", location.pathname);
+    for (const k of RESET_KEYS) state[k] = DEFAULTS[k];
     notify();
   }
 
   // ---------- URL hash persistence ----------
+  // Settled changes push history entries, so the browser's back/forward
+  // walk through your earlier configurations (popstate applies them below).
   let hashTimer = null;
   function scheduleHash() {
     clearTimeout(hashTimer);
@@ -215,8 +223,9 @@
       for (const k of KEYS) {
         if (state[k] !== DEFAULTS[k]) diff.push(k + "=" + encodeURIComponent(compactNum(state[k])));
       }
-      const h = diff.length ? "#" + diff.join("&") : location.pathname;
-      history.replaceState(null, "", diff.length ? h : location.pathname + location.search);
+      const h = diff.length ? "#" + diff.join("&") : "";
+      if ((location.hash || "") === h) return; // unchanged — no new entry
+      history.pushState(null, "", h || location.pathname + location.search);
     }, 300);
   }
   function compactNum(x) {
@@ -240,6 +249,15 @@
     }
     for (const k in patch) state[k] = clamp(k, patch[k]);
   }
+  // back/forward: re-apply the state a hash entry recorded. Plain #anchor
+  // hashes (no "=") are TOC navigation — leave the state alone.
+  window.addEventListener("popstate", () => {
+    const h = location.hash.slice(1);
+    if (h && h.indexOf("=") < 0) return;
+    Object.assign(state, DEFAULTS);
+    loadHash();
+    notify(); // scheduleHash re-derives the same hash and pushes nothing
+  });
 
   // ---------- snapping ----------
   const SNAPS = {
@@ -1209,9 +1227,10 @@
     for (const w of instances) { try { w.update(S); } catch (e) { console.error("widget first update failed", e); } }
     const resetBtns = document.querySelectorAll("button.reset");
     resetBtns.forEach((b) => b.addEventListener("click", resetAll));
-    // reset buttons light up whenever the state has strayed from the defaults
+    // reset buttons light up whenever the SCRUBS have strayed from their
+    // defaults (picking a model/hardware/measured mode is not "dirty")
     subscribe(() => {
-      const dirty = KEYS.some((kk) => state[kk] !== DEFAULTS[kk]);
+      const dirty = RESET_KEYS.some((kk) => state[kk] !== DEFAULTS[kk]);
       resetBtns.forEach((b) => b.classList.toggle("dirty", dirty));
     });
     // declarative instant tooltips: any element with data-tip (optional data-tip-label)
