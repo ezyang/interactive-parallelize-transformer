@@ -1,0 +1,268 @@
+<!-- ============================================================
+     01-intro.html — What Do We Mean By Scaling?
+     Restored from source/training.md lines 88–157 (MIT, see page footer).
+     Main column = the chapter's original text; adaptation voice lives in
+     ✦ margin notes; live-number swaps per the global conventions.
+     ============================================================ -->
+<section id="scaling">
+<h2>What Do We Mean By Scaling?</h2>
+
+<p>The goal of &ldquo;model scaling&rdquo; is to be able to increase the number of
+chips used for training or inference while achieving a proportional, linear
+increase in throughput (we call this <em>strong scaling</em>). While performance
+on a single chip depends on the trade-off between memory bandwidth and FLOPs,
+performance at the cluster level depends on hiding inter-chip communication by
+overlapping it with useful FLOPs. This is non-trivial, because increasing the
+number of chips increases the communication load while reducing the amount of
+per-device computation we can use to hide it. As we saw in
+<a href="https://jax-ml.github.io/scaling-book/sharding/">Section 3</a>, sharded
+matrix multiplications often require expensive
+<span class="op op-ag">AllGather</span>s or
+<span class="op op-rs">ReduceScatter</span>s that can block the TPUs from doing
+useful work. The goal of this section is to find out when these become
+<em>too expensive.</em></p>
+
+<p>In this section, we'll discuss four common parallelism schemes: (pure)
+<strong>data parallelism, fully-sharded data parallelism</strong> (FSDP / ZeRO
+sharding), <strong>tensor parallelism</strong> (also known as model parallelism),
+and (briefly) <strong>pipeline parallelism</strong>. For each, we'll show what
+communication cost we incur and at what point that cost starts to bottleneck our
+compute cost.<span class="sn"><button class="sn-ref" aria-label="sidenote">◦</button><span class="sn-body">We'll
+focus on communication bounds — since while memory capacity constraints are
+important, they typically do not bound us when using rematerialization
+(activation checkpointing) and a very large number of chips during pre-training.
+We also do not discuss expert parallelism here for MoEs — which expands the
+design space substantially, only the base case of a dense
+Transformer. <span class="ed">(Ed: this edition does — Chapter&nbsp;12's
+expert-parallelism treatment is merged into the flow as
+<a href="#expert-parallelism">its own section</a>, live whenever a MoE model is
+loaded.)</span></span></span> For this section, you can focus solely on inter-chip
+communication costs, since as long as we have a large enough single-chip batch
+size, the transfer of data from HBM to MXU is already overlapped with
+computation.</p>
+
+<p>We'll use the following notation to simplify calculations throughout this
+section.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+The notation is <em>alive</em>: the green values below are the page's one shared
+model — drag them and everything recomputes. Hover any colored letter for its
+meaning.</span></span></p>
+
+<table class="tbl">
+  <thead><tr><th>Notation</th><th>Meaning (model parameters)</th><th>Live value<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+  This column is the adaptation's; the chapter's tables have only the first
+  two.</span></span></th></tr></thead>
+  <tbody>
+    <tr><td><i class="v v-D">D</i></td><td><strong>d</strong><sub>model</sub> (the hidden dimension/residual stream dim)</td>
+      <td><span class="t-var" data-var="D" data-min="512" data-max="65536" data-scale="log" data-snap="pow2" data-fmt="int"></span></td></tr>
+    <tr><td><i class="v v-F">F</i></td><td><strong>d</strong><sub>ff</sub> (the feed-forward dimension)<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+      <strong>F convention (everywhere):</strong> the width of <em>one expert</em>
+      (= d<sub>ff</sub> when dense). Math runs through k·<i class="v v-F">F</i>;
+      weights hold E·<i class="v v-F">F</i>; the chapter's equations are the
+      E&nbsp;=&nbsp;k&nbsp;=&nbsp;1 case. (Chapter&nbsp;12's resolution — hover any
+      <i class="v v-F">F</i> for the live widths.)</span></span></td>
+      <td><span class="t-var" data-var="F" data-min="512" data-max="262144" data-scale="log" data-snap="pow2" data-fmt="int"></span></td></tr>
+    <tr><td><i class="v v-B">B</i></td><td>Batch dimension (number of tokens in the batch; total, not per-device)</td>
+      <td><span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span></td></tr>
+    <tr><td>T</td><td>Sequence length</td><td>—</td></tr>
+    <tr><td><i class="v v-L">L</i></td><td>Number of layers in the model</td>
+      <td><span class="t-var" data-var="L" data-min="1" data-max="512" data-scale="log" data-snap="int" data-fmt="int"></span></td></tr>
+  </tbody>
+</table>
+
+<table class="tbl">
+  <thead><tr><th>Notation</th><th>Meaning (hardware characteristic)</th><th>Live value</th></tr></thead>
+  <tbody>
+    <tr><td><i class="v v-C">C</i></td><td>FLOPS/s per chip</td>
+      <td><span class="t-out" data-expr="C" data-fmt="flops"></span></td></tr>
+    <tr><td><i class="v v-W">W</i></td><td>Network bandwidth (bidirectional, often subscripted as e.g. <i class="v v-W">W<sub>ici</sub></i> or <i class="v v-W">W<sub>dcn</sub></i>)</td>
+      <td><span class="t-out" data-expr="Wici" data-fmt="bw"></span> ici · <span class="t-out" data-expr="Wdcn" data-fmt="bw"></span> dcn</td></tr>
+    <tr><td><i class="v v-X">X</i></td><td>Number of chips along mesh axis X</td>
+      <td><span class="t-out" data-expr="X" data-fmt="int"></span></td></tr>
+    <tr><td><i class="v v-Y">Y</i></td><td>Number of chips along an alternate mesh axis, labeled Y</td>
+      <td><span class="t-out" data-expr="Y" data-fmt="int"></span></td></tr>
+    <tr><td><i class="v v-Z">Z</i></td><td>Number of chips along a third mesh axis, labeled Z</td>
+      <td><span class="t-out" data-expr="Z" data-fmt="int"></span></td></tr>
+  </tbody>
+</table>
+
+<div class="preset-row"><span class="preset-label">Model shapes to try:</span>
+  <button class="t-preset" data-set='{"D":8192,"F":28672,"L":80,"E":1,"k":1}'>LLaMA-3 70B (chapter default)</button>
+  <button class="t-preset" data-set='{"D":4096,"F":14336,"L":32,"E":1,"k":1}'>LLaMA-3 8B</button>
+  <button class="t-preset" data-set='{"D":16384,"F":65536,"L":128,"E":1,"k":1}'>a ~275B giant</button>
+</div>
+
+<details class="algo" open>
+  <summary>✦ adaptation — this notation, worn by today's frontier open-source models (click a model to load its shape)</summary>
+  <p>The chapter's examples are dense LLaMA-era models; the frontier has since gone
+  Mixture-of-Experts. The shapes below come from each model's published
+  <code>config.json</code> on Hugging Face (parameter totals from its safetensors
+  metadata; retrieved August 2026).<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+  E and k count shared experts (DeepSeek-V3: 256+1 routed/shared → E&nbsp;257,
+  k&nbsp;9), so k·<i class="v v-F">F</i> is exact. Column headers explain each
+  field; Kimi K3's latent MoE makes its F the roughest (3,072 latent vs 3,584
+  routed width — we use latent).</span></span></p>
+  <table class="tbl tbl-compact sortable">
+    <thead><tr>
+      <th data-tip="Click a model name to load its shape (D, F, L) into the page's shared state; click this header to sort alphabetically.">Model</th>
+      <th class="num" data-tip="Total parameter count, read from the model's safetensors metadata on Hugging Face. For MoE models most of these sit in experts that are idle for any given token.">params</th>
+      <th class="num" data-tip="d_model — the hidden / residual-stream dimension (config: hidden_size).">D</th>
+      <th class="num" data-tip="Per-expert feed-forward width (config: moe_intermediate_size; plain d_ff for a dense model). This is the page's F. FLOPs terms use k·F; weight terms use E·F.">F</th>
+      <th class="num" data-tip="Activated feed-forward width per token = k·F — the width a token actually multiplies through, i.e. what the chapter's dense equations call F. Display only; the state stores F and k.">act. k·F</th>
+      <th class="num" data-tip="Number of transformer layers (config: num_hidden_layers).">L</th>
+      <th class="num" data-tip="Total experts holding weights per MoE layer, INCLUDING shared experts (one more than the configs' routed count). Weights scale with E; per-token FLOPs don't — that gap is why MoE models make data parallelism harder (comms move all E experts' gradients while FLOPs only touch k).">E</th>
+      <th class="num" data-tip="Experts activated per token, INCLUDING always-on shared experts — equal to Chapter 12's plain top-k whenever there are no shared experts.">k</th>
+    </tr></thead>
+    <tbody>
+      <tr><td><button class="t-preset" data-set='{"D":7168,"F":2048,"L":61,"E":257,"k":9}'>DeepSeek-V3</button></td>
+        <td class="num">685B</td><td class="num">7,168</td><td class="num">2,048</td><td class="num">18,432</td><td class="num">61</td><td class="num">257</td><td class="num">9</td></tr>
+      <tr><td><button class="t-preset" data-set='{"D":7168,"F":3072,"L":93,"E":898,"k":18}'>Kimi K3</button></td>
+        <td class="num">2.78T</td><td class="num">7,168</td><td class="num">≈3,072</td><td class="num">≈55,296</td><td class="num">93</td><td class="num">898</td><td class="num">18</td></tr>
+      <tr><td><button class="t-preset" data-set='{"D":6144,"F":2048,"L":78,"E":257,"k":9}'>GLM-5.2</button></td>
+        <td class="num">753B</td><td class="num">6,144</td><td class="num">2,048</td><td class="num">18,432</td><td class="num">78</td><td class="num">257</td><td class="num">9</td></tr>
+      <tr><td><button class="t-preset" data-set='{"D":7168,"F":3072,"L":61,"E":385,"k":7}'>DeepSeek-V4-Pro</button></td>
+        <td class="num">1.60T</td><td class="num">7,168</td><td class="num">3,072</td><td class="num">21,504</td><td class="num">61</td><td class="num">385</td><td class="num">7</td></tr>
+      <tr><td><button class="t-preset" data-set='{"D":8192,"F":2048,"L":92,"E":513,"k":11}'>Qwen3.8-2.4T-A95B</button></td>
+        <td class="num">2.45T</td><td class="num">8,192</td><td class="num">2,048</td><td class="num">22,528</td><td class="num">92</td><td class="num">513</td><td class="num">11</td></tr>
+      <tr><td><button class="t-preset" data-set='{"D":6144,"F":3072,"L":66,"E":258,"k":8}'>Inkling</button></td>
+        <td class="num">952B</td><td class="num">6,144</td><td class="num">3,072</td><td class="num">24,576</td><td class="num">66</td><td class="num">258</td><td class="num">8</td></tr>
+      <tr><td><button class="t-preset" data-set='{"D":6144,"F":3072,"L":60,"E":129,"k":5}'>MiniMax-M3</button></td>
+        <td class="num">427B</td><td class="num">6,144</td><td class="num">3,072</td><td class="num">15,360</td><td class="num">60</td><td class="num">129</td><td class="num">5</td></tr>
+    </tbody>
+  </table>
+  <p style="font-family: var(--sans); font-size: 0.8rem; color: var(--muted); margin: 0.4rem 0 0.2rem;">
+  Click a model to load its shape (D, F, L, E, k) into the page's shared state
+  (the top bar follows); click a column header to sort. F = per-expert width;
+  act. k·F = activated width per token; E / k = total / activated experts,
+  counting shared. Notice how tight both width bands are: per-expert F is just
+  2,048 or 3,072 across every model here, and the activated width k·F clusters
+  between 15k and 25k even as totals span 427B to 2.78T. Since the
+  tensor-parallelism bound later in this chapter scales with the activated width
+  k·F, that clustering is why the TP limits look so similar across the frontier;
+  K3's k·F ≈ 55k is the outlier that buys headroom.</p>
+</details>
+
+<p>For simplicity's sake, <strong>we'll approximate a Transformer as a stack of
+MLP blocks</strong> — attention is a comparatively small fraction of the FLOPs
+for larger models as we saw in
+<a href="https://jax-ml.github.io/scaling-book/transformers/">Section 4</a>.
+We will also ignore the gating matmul, leaving us with the following simple
+structure for each layer:<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+With this simplification each layer holds
+2·<i class="v v-D">D</i>·E·<i class="v v-F">F</i> weights (E&nbsp;=&nbsp;1 for a
+dense model, so simply 2·D·F), and the whole stack has
+2·<i class="v v-D">D</i>·E·<i class="v v-F">F</i>·<i class="v v-L">L</i> =
+<span class="t-out" data-expr="P" data-fmt="si"></span> parameters at the current
+settings — the &ldquo;P&rdquo; that later memory arithmetic on this page
+uses.</span></span></p>
+
+<figure class="breakout">
+  <div class="widget" data-widget="layer-diagram" data-opts='{}'></div>
+  <figcaption>A simplified Transformer layer. We treat each FFW block as a stack
+  of two matrices <strong>W<sub>in</sub></strong>: <span class="shape">bf16[D, F]</span>
+  (up-projection) and <strong>W<sub>out</sub></strong>: <span class="shape">bf16[F, D]</span>
+  (down-projection) with an input <strong>In</strong>: <span class="shape">bf16[B, D]</span>.
+  Box edges are drawn to (log) scale from the live dimensions — drag
+  <i class="v v-F">F</i> = <span class="t-var" data-var="F" data-min="512" data-max="262144" data-scale="log" data-snap="pow2" data-fmt="int"></span>
+  and watch the matrices fatten. Hover an edge to highlight that dimension
+  everywhere on the page.</figcaption>
+</figure>
+
+<details class="algo">
+  <summary>Here's the full algorithm for our little Transformer with no parallelism.</summary>
+  <div class="algorithm">
+    <p><strong>Forward pass:</strong> need to compute Loss[B]</p>
+    <ol>
+      <li><span class="shape">Tmp[B, F]</span> = <span class="shape">In[B, D]</span> ·<sub>D</sub> <span class="shape">W<sub>in</sub>[D, F]</span></li>
+      <li><span class="shape">Out[B, D]</span> = <span class="shape">Tmp[B, F]</span> ·<sub>F</sub> <span class="shape">W<sub>out</sub>[F, D]</span></li>
+      <li><span class="shape">Loss[B]</span> = …</li>
+    </ol>
+    <p><strong>Backward pass:</strong> need to compute <span class="shape">dW<sub>out</sub>[F, D]</span>, <span class="shape">dW<sub>in</sub>[D, F]</span></p>
+    <ol>
+      <li><span class="shape">dOut[B, D]</span> = …</li>
+      <li><span class="shape">dW<sub>out</sub>[F, D]</span> = <span class="shape">Tmp[B, F]</span> ·<sub>B</sub> <span class="shape">dOut[B, D]</span></li>
+      <li><span class="shape">dTmp[B, F]</span> = <span class="shape">dOut[B, D]</span> ·<sub>D</sub> <span class="shape">W<sub>out</sub>[F, D]</span></li>
+      <li><span class="shape">dW<sub>in</sub>[D, F]</span> = <span class="shape">In[B, D]</span> ·<sub>B</sub> <span class="shape">dTmp[B, F]</span></li>
+      <li><span class="shape">dIn[B, D]</span> = <span class="shape">dTmp[B, F]</span> ·<sub>F</sub> <span class="shape">W<sub>in</sub>[D, F]</span> (<em>needed for previous layers</em>)</li>
+    </ol>
+    <p>We provide this for comparison to the algorithms with communication added.</p>
+  </div>
+</details>
+
+<p>Here are the 4 parallelism schemes we will discuss. Each scheme can be thought
+of as uniquely defined by a sharding for <strong>In</strong>,
+<strong>W<sub>in</sub>, W<sub>out</sub>, and Out</strong> in the above
+diagram.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+A quick reminder of the book's notation: a subscript on an array dimension names
+the mesh axis it is split over — <span class="shape">In[B<sub>X</sub>, D]</span>
+means the batch dimension is carved into <i class="v v-X">X</i> pieces, one per
+chip along axis X — while a subscript on a · names the dimension being
+contracted. The explorer below the four descriptions lets you click through the
+schemes: for each one it draws all four arrays with their shards colored by
+chip, the per-chip local shapes at the live <i class="v v-X">X</i> and
+<i class="v v-Y">Y</i>, and the collectives the scheme pays for in the forward
+and backward pass.</span></span></p>
+
+<p><strong>1. Data parallelism:</strong> <em>activations sharded along batch,
+parameters and optimizer state are replicated on each device. Communication only
+occurs during the backwards pass.</em></p>
+<div class="eq">
+  <span class="shape">In[B<sub>X</sub>, D]</span> ·<sub>D</sub>
+  <span class="shape">W<sub>in</sub>[D, F]</span> ·<sub>F</sub>
+  <span class="shape">W<sub>out</sub>[F, D]</span> →
+  <span class="shape">Out[B<sub>X</sub>, D]</span>
+</div>
+
+<p><strong>2. Fully-sharded data parallelism (FSDP or ZeRO-3):</strong>
+<em>activations sharded along batch (like pure data parallelism), parameters
+sharded along same mesh axis and <span class="op op-ag">AllGather</span>ed
+just-in-time before use in forward pass. Optimizer state also sharded along
+batch. Reduces duplicated memory.</em></p>
+<div class="eq">
+  <span class="shape">In[B<sub>X</sub>, D]</span> ·<sub>D</sub>
+  <span class="shape">W<sub>in</sub>[D<sub>X</sub>, F]</span> ·<sub>F</sub>
+  <span class="shape">W<sub>out</sub>[F, D<sub>X</sub>]</span> →
+  <span class="shape">Out[B<sub>X</sub>, D]</span>
+</div>
+
+<p><strong>3. Tensor parallelism (also called Megatron sharding or model
+parallelism):</strong> <em>activations sharded along D (d<sub>model</sub>),
+parameters sharded along F (d<sub>ff</sub>).
+<span class="op op-ag">AllGather</span> and
+<span class="op op-rs">ReduceScatter</span> activations before and after each
+block. Compatible with FSDP.</em></p>
+<div class="eq">
+  <span class="shape">In[B, D<sub>Y</sub>]</span> ·<sub>D</sub>
+  <span class="shape">W<sub>in</sub>[D, F<sub>Y</sub>]</span> ·<sub>F</sub>
+  <span class="shape">W<sub>out</sub>[F<sub>Y</sub>, D]</span> →
+  <span class="shape">Out[B, D<sub>Y</sub>]</span>
+</div>
+
+<p><strong>4. Pipeline parallelism:</strong> <em>weights sharded along the layer
+dimension, activations microbatched and rolled along the layer dimension.
+Communication between pipeline stages is minimal (just moving activations over a
+single hop). To abuse notation:</em><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+Notice what all four schemes have in common: every one runs the <em>same</em>
+matmuls — the FLOPs never change, only where the arrays live and which
+collectives must run between the multiplies. So for each scheme the question is
+always whether those collectives can hide behind the matmuls. Before the chapter
+dissects the schemes one by one, this adaptation inserts a short primer —
+<a href="#roofline">First, Feel the Roofline</a> — building the one picture that
+answers that question for all four.</span></span></p>
+<div class="eq">
+  <span class="shape">In[L<sub>Z</sub>, B, D][i]</span> ·<sub>D</sub>
+  <span class="shape">W<sub>in</sub>[L<sub>Z</sub>, D, F][i]</span> ·<sub>F</sub>
+  <span class="shape">W<sub>out</sub>[L<sub>Z</sub>, F, D][i]</span> →
+  <span class="shape">Out[L<sub>Z</sub>, B, D][i]</span>
+</div>
+
+<figure class="breakout">
+  <div class="widget" data-widget="scheme-explorer" data-opts='{}'></div>
+  <figcaption>The four schemes, one tab each. For the active scheme: its sharding
+  syntax line, the four arrays drawn with shards colored by chip, the per-chip
+  local shapes at the live
+  <i class="v v-X">X</i> = <span class="t-out" data-expr="X" data-fmt="int"></span> and
+  <i class="v v-Y">Y</i> = <span class="t-out" data-expr="Y" data-fmt="int"></span>,
+  and the communication ops incurred in the forward and backward pass.</figcaption>
+</figure>
+
+</section>

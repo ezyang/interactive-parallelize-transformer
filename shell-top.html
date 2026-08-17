@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to Parallelize a Transformer for Training — an explorable explanation</title>
+<meta name="description" content="An interactive adaptation of Part 5 of “How to Scale Your Model”: data parallelism, FSDP, tensor parallelism, and pipeline parallelism — with every number, equation, and diagram live.">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="machine" aria-label="shared model configuration">
+  <span class="group"><span class="glabel">Model</span>
+    <select id="model-preset" aria-label="model preset">
+      <option value='{"D":8192,"F":28672,"L":80,"E":1,"k":1}'>LLaMA-3 70B</option>
+      <option value='{"D":5120,"F":13824,"L":40,"E":1,"k":1}'>LLaMA-2 13B</option>
+      <option value='{"D":3072,"F":49152,"L":28,"E":1,"k":1}'>Gemma 7B</option>
+      <option value='{"D":7168,"F":2048,"L":61,"E":257,"k":9}'>DeepSeek-V3</option>
+      <option value='{"D":7168,"F":3072,"L":93,"E":898,"k":18}'>Kimi K3</option>
+      <option value='{"D":6144,"F":2048,"L":78,"E":257,"k":9}'>GLM-5.2</option>
+      <option value='{"D":7168,"F":3072,"L":61,"E":385,"k":7}'>DeepSeek-V4-Pro</option>
+      <option value='{"D":8192,"F":2048,"L":92,"E":513,"k":11}'>Qwen3.8-2.4T-A95B</option>
+      <option value='{"D":6144,"F":3072,"L":66,"E":258,"k":8}'>Inkling</option>
+      <option value='{"D":6144,"F":3072,"L":60,"E":129,"k":5}'>MiniMax-M3</option>
+      <option value="custom">custom…</option>
+    </select>
+    <span class="v v-D">D</span>=<span class="t-var" data-var="D" data-min="512" data-max="65536" data-snap="pow2" data-fmt="int"></span>
+    <span class="v v-F">F</span>=<span class="t-var" data-var="F" data-min="512" data-max="262144" data-scale="log" data-snap="125" data-fmt="si"></span>
+    <span class="v v-L">L</span>=<span class="t-var" data-var="L" data-min="1" data-max="200" data-scale="lin" data-snap="int" data-fmt="int"></span>
+    <span class="v v-E">E</span>=<span class="t-var" data-var="E" data-min="1" data-max="2048" data-scale="log" data-snap="pow2" data-fmt="int"></span>·<span class="v v-k">k</span>=<span class="t-var" data-var="k" data-min="1" data-max="64" data-scale="lin" data-snap="int" data-fmt="int"></span>
+  </span>
+  <span class="group"><span class="glabel">Hardware</span>
+    <select id="hw-preset" aria-label="hardware preset">
+      <option value='{"C":4.59e14,"Wici":1.8e11,"Wdcn":6.25e9,"HBM":9.6e10,"podSize":8960,"gpu":0,"MX":2,"MY":1}'>TPU v5p</option>
+      <option value='{"C":1.97e14,"Wici":9e10,"Wdcn":3.125e9,"HBM":1.6e10,"podSize":256,"gpu":0,"MX":2,"MY":1}'>TPU v5e</option>
+      <option value='{"C":9.9e14,"Wici":4.5e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MX":1,"MY":1}'>H100 (8-GPU node)</option>
+      <option value='{"C":2.25e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.92e11,"podSize":8,"gpu":1,"MX":1,"MY":1}'>B200 (8-GPU node)</option>
+      <option value='{"C":2.25e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.92e11,"podSize":72,"gpu":1,"MX":1,"MY":1}'>GB200 NVL72</option>
+      <option value='{"C":2.5e15,"Wici":9e11,"Wdcn":1e11,"HBM":2.88e11,"podSize":72,"gpu":1,"MX":1,"MY":1}'>GB300 NVL72</option>
+      <option value="custom">custom…</option>
+    </select>
+    <span class="v v-C">C</span>=<span class="t-var" data-var="C" data-min="1e13" data-max="5e15" data-scale="log" data-fmt="flops"></span>
+    <span class="v v-W">W<span class="t-show inline" data-expr="1-gpu"><sub>ici</sub></span><span class="t-show inline" data-expr="gpu"><sub>gpu</sub></span></span>=<span class="t-var" data-var="Wici" data-min="1e10" data-max="2e12" data-scale="log" data-fmt="bw"></span>
+  </span>
+  <span class="group"><span class="glabel">Batch</span>
+    <span class="v v-B">B</span>=<span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span> tokens
+  </span>
+  <span class="group"><span class="glabel">Mesh</span>
+    <span class="v v-X">X</span>=<span class="t-var" data-var="X" data-min="1" data-max="65536" data-scale="log" data-snap="pow2" data-fmt="int"></span> ·
+    <span class="v v-Y">Y</span>=<span class="t-var" data-var="Y" data-min="1" data-max="512" data-scale="log" data-snap="pow2" data-fmt="int"></span>
+    (<span class="v v-N">N</span>=<span class="t-out" data-expr="N" data-fmt="int"></span> chips)
+  </span>
+  <button class="reset" title="reset every number on the page to its default">reset</button>
+</div>
+
+<nav class="toc" aria-label="table of contents">
+  <a href="#scaling">What Do We Mean By Scaling?</a>
+  <a href="#roofline">First, Feel the Roofline</a>
+  <a href="#data-parallelism" class="sub">Data Parallelism</a>
+  <a href="#fsdp" class="sub">Fully-Sharded DP (FSDP)</a>
+  <a href="#tensor-parallelism" class="sub">Tensor Parallelism</a>
+  <a href="#mixed" class="sub">FSDP + Tensor Parallelism</a>
+  <a href="#expert-parallelism" class="sub">Expert Parallelism</a>
+  <a href="#pipelining" class="sub">Pipelining</a>
+  <a href="#pods" class="sub">Scaling Across Pods</a>
+  <a href="#gpus" class="sub">The GPU Network Model</a>
+  <a href="#takeaways">Takeaways</a>
+  <a href="#problems">Problems to Work</a>
+  <a href="#appendix">Appendix</a>
+</nav>
+
+<div class="paper">
+<header>
+  <h1>How to Parallelize a Transformer for Training</h1>
+  <p class="byline">An <em>explorable</em> adaptation of <a href="https://jax-ml.github.io/scaling-book/training/">Part 5 of “How to Scale Your Model”</a> by Jacob Austin, Sholto Douglas, Roy Frostig, Anselm Levskaya, Charlie Chen, Sharad Vikram, Federico Lebron, Peter Choy, Vinay Ramasesh, Albert Webson &amp; Reiner Pope (Google DeepMind).</p>
+  <p class="dek">Here we discuss four main parallelism schemes used during LLM training: data parallelism, fully-sharded data parallelism (FSDP), tensor parallelism, and pipeline parallelism. For each, we calculate at what point we become bottlenecked by communication.</p>
+
+  <div class="howto">
+    <p style="margin:0 0 .6em"><strong>This page is a working model, not a description of one.</strong>
+    Every <span class="k">green number</span> can be dragged left or right, or double-clicked to type an exact value. Every <span class="k">blue number</span> is computed live from the green ones — try it here: drag the batch
+    <span class="k"><span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span></span> and watch the per-chip batch
+    <span class="k"><span class="t-out" data-expr="B/X" data-fmt="int"></span></span> follow (hover any blue number for its formula). All of them share <em>one</em> model of a training run (the strip pinned above), so a change made anywhere propagates everywhere: equations, diagrams, charts, even the answers to the exercises. And scrub without fear —
+    <button class="reset">reset</button> restores every default (it's the same button as in the top bar, which lights up orange whenever you've strayed from the defaults), and any single number reverts on its own when you double-click it and commit it blank.</p>
+    <p style="margin:0"><strong>Whose words are you reading?</strong> The main column is the original chapter's text (© 2022 Maruan Al-Shedivat, © 2025 Google LLC, <a href="LICENSE-scaling-book.txt">MIT license</a>), with four disclosed exceptions:
+    wherever the chapter printed a fixed number, this page computes it live (these in-place swaps aren't individually marked);
+    the interactive figures and their captions replace the original static figures;
+    <span class="k">✦&nbsp;margin notes</span> are this adaptation's voice — written by Fable, the Anthropic model that built this edition — instructions, asides, and the added
+    <a href="#roofline">roofline primer</a>, <a href="#expert-parallelism">expert parallelism</a>, and <a href="#gpus">GPU network</a> sections;
+    where a sentence had to be altered to host a live element, a <span class="k">Δ&nbsp;margin note</span> quotes the original and states the change;
+    and where this edition's additions make a chapter statement inaccurate as written, an italic <span class="ed">(Ed:&nbsp;…)</span> interjection corrects it in place.</p>
+  </div>
+</header>

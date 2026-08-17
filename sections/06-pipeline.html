@@ -1,0 +1,259 @@
+<!-- ============================================================
+     06-pipeline.html — Pipelining
+     Restored verbatim from source/training.md lines 506–569 (MIT, see
+     page footer / LICENSE-scaling-book.txt). Adaptation content is
+     disclosed in ✦ margin notes; altered sentences carry Δ notes.
+     ============================================================ -->
+<section id="pipelining">
+  <h2>Pipelining</h2>
+
+  <p>You'll probably notice we've avoided talking about pipelining at all in the
+  previous sections. Pipelining is a dominant strategy for GPU parallelism that is
+  somewhat less essential on TPUs. Briefly, pipelined training involves splitting the
+  layers of a model across multiple devices and passing the activations between
+  pipeline stages during the forward and backward pass.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> On
+  this page the split is live: with <i class="v v-L">L</i> =
+  <span class="t-out" data-expr="L" data-fmt="int"></span> layers over
+  <i class="v v-Z">Z</i> = <span class="t-out" data-expr="Z" data-fmt="int"></span>
+  pipeline stages (scrubbable below), each device owns about
+  <span class="t-out" data-expr="ceil(L/Z)" data-fmt="int"></span> consecutive
+  layers.</span></span> The algorithm is something like:</p>
+
+  <div class="algorithm">
+    <ol>
+      <li>Initialize your data on TPU 0 with your weights sharded across the layer
+        dimension (<span class="shape">W<sub>in</sub>[L<sub>Z</sub>, D<sub>X</sub>, F<sub>Y</sub>]</span>
+        for pipelining with FSDP and tensor parallelism).</li>
+      <li>Perform the first layer on TPU 0, then copy the resulting activations to
+        TPU 1, and repeat until you get to the last TPU.</li>
+      <li>Compute the loss function and its derivative
+        <span class="eq-i">∂L/∂x<sub>L</sub></span>.</li>
+      <li>For the last pipeline stage, compute the derivatives
+        <span class="eq-i">∂L/∂W<sub>L</sub></span> and
+        <span class="eq-i">∂L/∂x<sub>L−1</sub></span>, then copy
+        <span class="eq-i">∂L/∂x<sub>L−1</sub></span> to the previous pipeline stage
+        and repeat until you reach TPU 0.</li>
+    </ol>
+  </div>
+
+  <details class="algo">
+    <summary>Here is some (working) Python pseudo-code</summary>
+    <p>This pseudocode should run on a Cloud TPU VM. While it's not very efficient or
+    realistic, it gives you a sense how data is being propagated across devices.</p>
+    <pre class="code"><code>batch_size = 32
+d_model = 128
+d_ff = 4 * d_model
+
+num_layers = len(jax.devices())
+
+key = jax.random.PRNGKey(0)
+
+# Pretend each layer is just a single matmul.
+x = jax.random.normal(key, (batch_size, d_model))
+weights = jax.random.normal(key, (num_layers, d_model, d_model))
+
+def layer_fn(x, weight):
+  return x @ weight
+
+# Assume we have num_layers == num_pipeline_stages
+intermediates = [x]
+for i in range(num_layers):
+  x = layer_fn(x, weights[i])
+  intermediates.append(x)
+
+  if i != num_layers - 1:
+    x = jax.device_put(x, jax.devices()[i+1])
+
+def loss_fn(batch):
+  return jnp.mean(batch ** 2)  # make up some fake loss function
+
+loss, dx = jax.value_and_grad(loss_fn)(x)
+
+for i in range(num_layers - 1, -1, -1):
+  _, f_vjp = jax.vjp(layer_fn, intermediates[i], weights[i])
+  dx, dw = f_vjp(dx)  # compute the jvp dx @ J(L)(x[i], W[i])
+  weights[i] = weights[i] - 0.01 * dw  # update our weights
+
+  if i != 0:
+    dx = jax.device_put(dx, jax.devices()[i-1])</code></pre>
+  </details>
+
+  <p><strong>Why is this a good idea?</strong> Pipelining is great for many reasons:
+  it has a low communication cost between pipeline stages, meaning you can train very
+  large models even with low bandwidth interconnects. This is often very useful on
+  GPUs since they are not densely connected by ICI in the way TPUs
+  are.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> The
+  chapter doesn't quantify "low communication cost," so the check below is ours. A
+  stage-boundary hop is a single point-to-point copy of one activation block —
+  2<i class="v v-D">D</i> = <span class="t-out" data-expr="2*D" data-fmt="bytes"></span>
+  per token in bf16 — and it's the <a href="#roofline">same roofline question</a> as
+  ever: does the hop fit under one stage's compute clock? The line below runs the
+  numbers for one microbatch.</span></span></p>
+
+  <div class="eq-live">
+    T<sub>hop</sub> = 2·<i class="v v-D">D</i>·(<i class="v v-B">B</i>/<i class="v v-M">M<sub>micro</sub></i>) ÷ <i class="v v-W">W<sub>ici</sub></i> =
+    <span class="t-out" data-expr="2*D*(B/Mmicro)/Wici" data-fmt="time"></span>
+    vs one stage's compute
+    <span class="t-out" data-expr="4*(B/Mmicro)*D*k*F*ceil(L/Z)/C" data-fmt="time"></span> →
+    <span class="t-if" data-expr="2*D*(B/Mmicro)/Wici &lt; 4*(B/Mmicro)*D*k*F*ceil(L/Z)/C" data-then="hop hides under the stage clock ✓" data-else="hop exposed ✗"></span><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Try:
+    this check passes with room to spare — slash
+    <i class="v v-W">W<sub>ici</sub></i> =
+    <span class="t-var" data-var="Wici" data-min="1e10" data-max="2e12" data-scale="log" data-fmt="bw"></span>
+    tenfold and it <em>still</em> passes, because the hop's cost has a factor of
+    <i class="v v-F">F</i>·layers-per-stage of compute to hide behind. That headroom
+    is the entire reason pipelining tolerates weak networks.</span></span>
+  </div>
+
+  <p><strong>Why is this difficult/annoying?</strong> You might have noticed in the
+  pseudocode above that TPU 0 is almost always idle! It's only doing work on the very
+  first and last step of the pipeline. The period of idleness is called a pipeline
+  bubble and is very annoying to deal with. Typically we try to mitigate this first
+  with microbatching, which sends
+  <i class="v v-M">M<sub>micro</sub></i> =
+  <span class="t-var" data-var="Mmicro" data-min="1" data-max="64" data-scale="lin" data-snap="int" data-fmt="int"></span>
+  small batches through the
+  <i class="v v-Z">Z</i> =
+  <span class="t-var" data-var="Z" data-min="1" data-max="32" data-scale="lin" data-snap="int" data-fmt="int"></span>-stage
+  pipeline, keeping TPU 0 utilized for at least a larger fraction of the total step
+  time.<span class="sn edit"><button class="sn-ref" aria-label="edit note">Δ</button><span class="sn-body"><span class="sn-tag">edited</span> The
+  chapter reads: <span class="orig">“Typically we try to mitigate this first with
+  microbatching, which sends multiple small batches through the pipeline, keeping
+  TPU 0 utilized for at least a larger fraction of the total step
+  time.”</span> — reworded to host the scrubbable microbatch and stage
+  counts.<span class="sn-post"><span class="sn-tag">adaptation</span> The
+  chapter never states the bubble-fraction formula; the equation below is ours, for a
+  GPipe-style schedule. (Backward blocks in the schedule are drawn ~2× the forward
+  width — backpropagating through a matmul costs roughly twice the forward FLOPs, one
+  matmul for ∂L/∂x and one for ∂L/∂W — but the bubble fraction counts time and comes
+  out the same either way.)</span></span></span></p>
+
+  <div class="eq">
+    bubble fraction =
+    <span class="frac"><span><i class="v v-Z">Z</i> − 1</span><span><i class="v v-M">M<sub>micro</sub></i> + <i class="v v-Z">Z</i> − 1</span></span>
+  </div>
+  <div class="eq-live">right now:
+    <span class="t-out" data-expr="Z-1" data-fmt="int"></span> /
+    <span class="t-out" data-expr="Mmicro+Z-1" data-fmt="int"></span> =
+    <span class="t-out" data-expr="(Z-1)/(Mmicro+Z-1)" data-fmt="pct"></span> idle →
+    per-device utilization <span class="t-out" data-expr="Mmicro/(Mmicro+Z-1)" data-fmt="pct"></span><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Try:
+    drag <i class="v v-M">M<sub>micro</sub></i> down to 1 — the worst case, where each
+    device touches the batch exactly once and the bubble hits
+    <span class="t-out" data-expr="(Z-1)/(Z)" data-fmt="pct"></span> — then crank it
+    toward 64 and watch the hatched region in the schedule below shrink like
+    (<i class="v v-Z">Z</i>−1)/(<i class="v v-M">M<sub>micro</sub></i>+<i class="v v-Z">Z</i>−1).</span></span>
+  </div>
+
+  <div class="t-show" data-expr="gpu">
+    <p>The overall communication cost of pipelining is tiny: with
+    <i class="v">N<sub>MB</sub></i> microbatches and
+    <i class="v">N<sub>stages</sub></i>, we have
+    <span class="eq-i">T<sub>comms per hop</sub> = 2 · <i class="v v-B">B</i> · <i class="v v-D">D</i> / (<i class="v v-W">W</i> · <i class="v">N<sub>MB</sub></i>)</span>
+    and
+    <span class="eq-i"><i class="v">N<sub>MB</sub></i> + <i class="v">N<sub>stages</sub></i> − 2</span>
+    hops, so
+    roughly<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> This
+    passage — visible because a GPU preset is loaded — is Chapter 12's treatment of
+    pipeline parallelism, moved here into the chapter's pipelining section by this
+    adaptation. Its cost formula and reason (2) are verbatim; reasons (1) and (3)
+    are condensed to a sentence each, as marked.</span></span></p>
+
+    <div class="eq">
+      T<sub>total PP comms</sub> =
+      <span class="frac"><span>2<i class="v v-B">B</i><i class="v v-D">D</i></span><span><i class="v v-W">W</i> · <i class="v">N<sub>MB</sub></i></span></span>
+      · (<i class="v">N<sub>MB</sub></i> + <i class="v">N<sub>stages</sub></i> − 2)
+    </div>
+
+    <div class="eq">
+      T<sub>per-layer comms</sub> ≈ 1.5 ·
+      <span class="frac"><span>2<i class="v v-B">B</i><i class="v v-D">D</i></span><span><i class="v v-W">W</i> · <i class="v">N<sub>layers</sub></i></span></span>
+    </div>
+
+    <div class="eq-live">right now, over node egress
+      <span class="t-out" data-expr="Wdcn*podSize" data-fmt="bw"></span> with
+      N<sub>layers</sub> = <span class="t-out" data-expr="L" data-fmt="int"></span>:
+      per-layer PP comms ≈
+      <span class="t-out" data-expr="1.5*2*B*D/(Wdcn*podSize*L)" data-fmt="time"></span>
+      vs the DP AllReduce's
+      <span class="t-out" data-expr="8*D*E*F/(Wdcn*podSize)" data-fmt="time"></span> per layer
+    </div>
+
+    <p>Since we are dividing by <i class="v">N<sub>layers</sub></i>, this is vastly
+    smaller than any of the other costs. In other words, from a communication
+    standpoint, pipelining is basically free. So why don't we just do pipelining?
+    There are a few reasons:</p>
+
+    <p>(1) <strong>Code complexity:</strong> pipelining fits poorly into automatic
+    parallelism frameworks (like XLA's GSPMD), because microbatching and custom
+    zero-bubble schedules change the structure of the
+    program.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Condensed
+    to one sentence — see Chapter 12 for the full paragraph.</span></span></p>
+
+    <p>(2) <strong>Pipelining makes data parallelism and FSDP hard:</strong> probably
+    the biggest reason not to do pipelining is that it plays badly with FSDP and data
+    parallelism. ZeRO-3 sharding in particular works badly, since it requires us to
+    <span class="op op-ag">AllGather</span> the weights on every microbatch which
+    doesn't work when we have only
+    <span class="eq-i"><i class="v v-B">B</i> / N<sub>microbatches</sub></span> tokens
+    to amortize the AllGather cost. Furthermore, during the backward pass, <em>we
+    can't AllReduce or ReduceScatter the gradients until the last microbatch has
+    passed a given stage, which means we have significant non-overlapped
+    communication time.</em></p>
+
+    <p>(3) <strong>Pipeline bubbles and step imbalance:</strong> naive pipeline
+    schedules leave stages idle in bubbles, and passing activations from stage to
+    stage on the critical path shifts stages relative to each other and adds
+    overhead.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Condensed
+    to one sentence — see Chapter 12, and the live bubble math just above.</span></span></p>
+
+    <p>There are workarounds for each of these issues, but they tend to be
+    complicated to implement and difficult to maintain; pipelining remains a
+    technique with low communication cost relative to other methods.</p>
+  </div>
+
+  <p>A second approach is to carefully overlap the forward matmul
+  <span class="eq-i">W<sub>i</sub> @ x<sub>i</sub></span>, the backward
+  <span class="eq-i">dx</span> matmul
+  <span class="eq-i">W<sub>i</sub> @ ∂L/∂x<sub>i+1</sub></span>, and the
+  <span class="eq-i">dW</span> matmul
+  <span class="eq-i">∂L/∂x<sub>i+1</sub> @ x<sub>i</sub></span>. Since each of these
+  requires some FLOPs, we can overlap them to fully hide the bubble. Here's our live
+  stand-in for the plot from the recent
+  <a href="https://arxiv.org/abs/2412.19437">DeepSeek v3 paper</a> showing their
+  "bubble-free" pipeline
+  schedule:<span class="sn edit"><button class="sn-ref" aria-label="edit note">Δ</button><span class="sn-body"><span class="sn-tag">edited</span> The
+  chapter reads: <span class="orig">“Here's a plot from the recent DeepSeek v3 paper
+  showing their "bubble-free" pipeline schedule:”</span> — reworded because our
+  interactive schedule widget stands in for their static
+  figure.<span class="sn-post"><span class="sn-tag">adaptation</span> Toggle
+  the widget's mode: <em>naive</em> is GPipe, <em>1F1B</em> interleaves one forward
+  with one backward (same bubble, far less activation memory held live), and
+  <em>overlap-dW</em> is the DeepSeek-v3-style schedule — rush every ∂x result down
+  the pipeline to unblock neighbors, and drop the deferred ∂W matmuls into slots that
+  would otherwise sit idle.</span></span></span></p>
+
+  <figure class="breakout">
+    <div class="widget" data-widget="pipeline-schedule" data-opts='{}'></div>
+    <figcaption>The pipeline schedule, live — rows are devices, time runs left to
+    right. Blue blocks are forward microbatches, orange is the backward ∂L/∂x work
+    (drawn 2× wide), aqua is the deferred ∂L/∂W work, and the hatched gaps are the
+    bubble. In <em>overlap-dW</em> mode — standing in for the figure from the
+    DeepSeek v3 paper — prioritizing the backwards ∂L/∂x multiplications avoids
+    "stranding" FLOPs.</figcaption>
+  </figure>
+
+  <div class="preset-row"><span class="preset-label">Try:</span>
+    <button class="t-preset" data-set='{"Z":4,"Mmicro":1}'>no microbatching (worst case)</button>
+    <button class="t-preset" data-set='{"Z":4,"Mmicro":8}'>Z=4, M=8</button>
+    <button class="t-preset" data-set='{"Z":16,"Mmicro":64}'>deep pipeline, M ≫ Z</button>
+  </div>
+
+  <p>Because it is less critical for TPUs (which have larger interconnected pods), we
+  won't delve into this as deeply, but it's a good exercise to understand the key
+  pipelining bottlenecks.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> The
+  condensed picture: pipelining's communication is one activation hop per stage
+  boundary, so it thrives on weak interconnects and dominates GPU training; the price
+  is the bubble — currently
+  <span class="t-out" data-expr="(Z-1)/(Mmicro+Z-1)" data-fmt="pct"></span> of each
+  device's time — which microbatching shrinks and careful ∂x/∂W overlap can
+  erase.</span></span></p>
+</section>

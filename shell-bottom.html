@@ -1,0 +1,55 @@
+<footer class="colophon">
+  <p>This page is an interactive edition of
+  <a href="https://jax-ml.github.io/scaling-book/training/">“How to Parallelize a Transformer for Training,”</a>
+  Part 5 of <em>How to Scale Your Model</em> by Jacob Austin, Sholto Douglas, Roy Frostig, Anselm Levskaya,
+  Charlie Chen, Sharad Vikram, Federico Lebron, Peter Choy, Vinay Ramasesh, Albert Webson, and Reiner Pope
+  (Google DeepMind, 2025), with GPU material drawn from
+  <a href="https://jax-ml.github.io/scaling-book/gpus/">Chapter 12 of the same book</a>.
+  The text in the main column is the authors’, reproduced under the
+  <a href="LICENSE-scaling-book.txt">MIT License</a> (© 2022 Maruan Al-Shedivat, © 2025 Google LLC),
+  whose notice ships with this page; departures are disclosed in the margin (✦ additions, Δ edits).
+  This interactive edition was built by <strong>Fable</strong> (Claude, Anthropic) with its human editor;
+  all errors introduced by the adaptation are Fable’s.</p>
+  <p>The interaction style follows Bret Victor’s
+  <a href="https://worrydream.com/ExplorableExplanations/">Explorable Explanations</a>:
+  a reactive document “allows the reader to play with the author’s assumptions and analyses, and see the consequences.”
+  No libraries, no build step, no network — view source and hack away.</p>
+</footer>
+</div><!-- /.paper -->
+
+<script src="js/core.js"></script>
+<script src="js/roofline.js"></script>
+<script src="js/diagrams.js"></script>
+<script src="js/collectives.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/meters.js"></script>
+<script src="js/pipeline.js"></script>
+<script>
+// wire the two preset <select>s in the machine bar
+(function () {
+  function wire(id) {
+    var sel = document.getElementById(id);
+    if (!sel) return;
+    sel.addEventListener("change", function () {
+      if (sel.value === "custom") return;
+      try { Core.set(JSON.parse(sel.value)); } catch (e) { console.error(e); }
+    });
+    Core.subscribe(function (S) {
+      var matched = false;
+      for (var i = 0; i < sel.options.length; i++) {
+        var o = sel.options[i];
+        if (o.value === "custom") continue;
+        var p;
+        try { p = JSON.parse(o.value); } catch (e) { continue; }
+        var ok = Object.keys(p).every(function (k) { return S[k] === Number(p[k]); });
+        if (ok) { sel.value = o.value; matched = true; break; }
+      }
+      if (!matched) sel.value = "custom";
+    });
+  }
+  wire("model-preset");
+  wire("hw-preset");
+})();
+</script>
+</body>
+</html>

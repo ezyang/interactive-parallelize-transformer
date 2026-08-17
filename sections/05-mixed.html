@@ -1,0 +1,442 @@
+<!-- ============================================================
+     05-mixed.html — Combining FSDP and Tensor Parallelism
+     Restored verbatim from source/training.md lines 383–505
+     (MIT license; notice ships as LICENSE-scaling-book.txt, linked
+     from the page header and footer). Adaptation voice lives only
+     in ✦ margin notes; live-number swaps follow the header's
+     global conventions; Δ notes disclose reworded passages.
+     ============================================================ -->
+<section id="mixed">
+  <h2>Combining FSDP and Tensor Parallelism</h2>
+
+  <p><strong>Syntax:</strong></p>
+  <div class="eq">
+    <span class="shape">In[B<sub>X</sub>, D<sub>Y</sub>]</span> ·<sub>D</sub>
+    <span class="shape">W<sub>in</sub>[D<sub>X</sub>, F<sub>Y</sub>]</span> ·<sub>F</sub>
+    <span class="shape">W<sub>out</sub>[F<sub>Y</sub>, D<sub>X</sub>]</span> →
+    <span class="shape">Out[B<sub>X</sub>, D<sub>Y</sub>]</span>
+  </div>
+
+  <p>The nice thing about FSDP and tensor parallelism is that they can be
+  combined. By sharding <strong>W<sub>in</sub></strong> and
+  <strong>W<sub>out</sub></strong> along both axes we both save memory and
+  compute. Because we shard B along <i class="v v-X">X</i>, we reduce the size
+  of the model-parallel AllGathers, and because we shard
+  <i class="v v-F">F</i> along <i class="v v-Y">Y</i>, we reduce the
+  communication overhead of FSDP. This means a combination of the two can get
+  us to an even lower effective batch size than we saw above.</p>
+
+  <figure class="breakout">
+    <div class="widget" data-widget="shard-grid" data-opts='{"scheme":"mixed"}'></div>
+    <figcaption>A diagram combining FSDP and tensor parallelism. Unlike the
+    other cases, there is no duplication of model parameters: each of the
+    <i class="v v-N">N</i> = <span class="t-out" data-expr="N" data-fmt="int"></span>
+    chips holds a distinct
+    <span class="shape">[D/X, F/Y]</span> =
+    <span class="shape">[<span class="t-out" data-expr="D/X" data-fmt="int"></span>, <span class="t-out" data-expr="F/Y" data-fmt="int"></span>]</span>
+    tile of W<sub>in</sub>, and the activations are sharded along both of their
+    axes too. Hover a chip to see which shards it owns.</figcaption>
+  </figure>
+
+  <details class="algo">
+    <summary>Here's the full algorithm for mixed FSDP + tensor parallelism.
+    While we have a lot of communication, all our AllGathers and
+    ReduceScatters are smaller because we have batch-sharded our activations
+    and tensor sharded our weights much more!</summary>
+    <div class="algorithm">
+      <p><strong>Forward pass:</strong> need to compute
+      Loss[B]<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+      Count what actually sits on the critical path: on the
+      <i class="v v-Y">Y</i> axis, one <span class="op op-ag">AllGather</span>
+      in (step 1) and one <span class="op op-rs">ReduceScatter</span> out
+      (step 6) of activation bytes; the weight gathers on the
+      <i class="v v-X">X</i> axis (steps 2 and 4) can be prefetched. Those two
+      Y-axis activation hops and two X-axis weight hops are exactly the
+      2 · 2 factors in T<sub>TP comms</sub> and T<sub>FSDP comms</sub>
+      below.</span></span></p>
+      <ol>
+        <li><span class="shape">In[B<sub>X</sub>, D]</span> = <span class="op op-ag">AllGather</span><sub>Y</sub>(<span class="shape">In[B<sub>X</sub>, D<sub>Y</sub>]</span>) <em>(on critical path)</em></li>
+        <li><span class="shape">W<sub>in</sub>[D, F<sub>Y</sub>]</span> = <span class="op op-ag">AllGather</span><sub>X</sub>(<span class="shape">W<sub>in</sub>[D<sub>X</sub>, F<sub>Y</sub>]</span>) <em>(can be done ahead of time)</em></li>
+        <li><span class="shape">Tmp[B<sub>X</sub>, F<sub>Y</sub>]</span> = <span class="shape">In[B<sub>X</sub>, D]</span> ·<sub>D</sub> <span class="shape">W<sub>in</sub>[D, F<sub>Y</sub>]</span></li>
+        <li><span class="shape">W<sub>out</sub>[F<sub>Y</sub>, D]</span> = <span class="op op-ag">AllGather</span><sub>X</sub>(<span class="shape">W<sub>out</sub>[F<sub>Y</sub>, D<sub>X</sub>]</span>) <em>(can be done ahead of time)</em></li>
+        <li><span class="shape">Out[B<sub>X</sub>, D]</span> {U<sub>Y</sub>} = <span class="shape">Tmp[B<sub>X</sub>, F<sub>Y</sub>]</span> ·<sub>F</sub> <span class="shape">W<sub>out</sub>[F<sub>Y</sub>, D]</span></li>
+        <li><span class="shape">Out[B<sub>X</sub>, D<sub>Y</sub>]</span> = <span class="op op-rs">ReduceScatter</span><sub>Y</sub>(<span class="shape">Out[B<sub>X</sub>, D]</span> {U<sub>Y</sub>}) <em>(on critical path)</em></li>
+        <li><span class="shape">Loss[B<sub>X</sub>]</span> = …</li>
+      </ol>
+      <p><strong>Backward pass:</strong> need to compute
+      <span class="shape">dW<sub>out</sub>[F<sub>Y</sub>, D<sub>X</sub>]</span>,
+      <span class="shape">dW<sub>in</sub>[D<sub>X</sub>, F<sub>Y</sub>]</span></p>
+      <ol>
+        <li><span class="shape">dOut[B<sub>X</sub>, D<sub>Y</sub>]</span> = …</li>
+        <li><span class="shape">dOut[B<sub>X</sub>, D]</span> = <span class="op op-ag">AllGather</span><sub>Y</sub>(<span class="shape">dOut[B<sub>X</sub>, D<sub>Y</sub>]</span>) <em>(on critical path)</em></li>
+        <li><span class="shape">dW<sub>out</sub>[F<sub>Y</sub>, D]</span> {U<sub>X</sub>} = <span class="shape">Tmp[B<sub>X</sub>, F<sub>Y</sub>]</span> ·<sub>B</sub> <span class="shape">dOut[B<sub>X</sub>, D]</span></li>
+        <li><span class="shape">dW<sub>out</sub>[F<sub>Y</sub>, D<sub>X</sub>]</span> = <span class="op op-rs">ReduceScatter</span><sub>X</sub>(<span class="shape">dW<sub>out</sub>[F<sub>Y</sub>, D]</span> {U<sub>X</sub>})</li>
+        <li><span class="shape">W<sub>out</sub>[F<sub>Y</sub>, D]</span> = <span class="op op-ag">AllGather</span><sub>X</sub>(<span class="shape">W<sub>out</sub>[F<sub>Y</sub>, D<sub>X</sub>]</span>) <em>(can be done ahead of time)</em></li>
+        <li><span class="shape">dTmp[B<sub>X</sub>, F<sub>Y</sub>]</span> = <span class="shape">dOut[B<sub>X</sub>, D]</span> ·<sub>D</sub> <span class="shape">W<sub>out</sub>[F<sub>Y</sub>, D]</span> <em>(can throw away dOut[B, D] here)</em></li>
+        <li><span class="shape">In[B<sub>X</sub>, D]</span> = <span class="op op-ag">AllGather</span><sub>Y</sub>(<span class="shape">In[B<sub>X</sub>, D<sub>Y</sub>]</span>) <em>(not on critical path + this can be shared with (2) from the previous layer)</em></li>
+        <li><span class="shape">dW<sub>in</sub>[D, F<sub>Y</sub>]</span> {U<sub>X</sub>} = <span class="shape">In[B<sub>X</sub>, D]</span> ·<sub>B</sub> <span class="shape">dTmp[B<sub>X</sub>, F<sub>Y</sub>]</span></li>
+        <li><span class="shape">dW<sub>in</sub>[D<sub>X</sub>, F<sub>Y</sub>]</span> = <span class="op op-rs">ReduceScatter</span><sub>X</sub>(<span class="shape">dW<sub>in</sub>[D, F<sub>Y</sub>]</span> {U<sub>X</sub>})</li>
+        <li><span class="shape">W<sub>in</sub>[D, F<sub>Y</sub>]</span> = <span class="op op-ag">AllGather</span><sub>X</sub>(<span class="shape">W<sub>in</sub>[D<sub>X</sub>, F<sub>Y</sub>]</span>) <em>(can be done ahead of time)</em></li>
+        <li><span class="shape">dIn[B<sub>X</sub>, D]</span> {U<sub>Y</sub>} = <span class="shape">dTmp[B<sub>X</sub>, F<sub>Y</sub>]</span> ·<sub>F</sub> <span class="shape">W<sub>in</sub>[D, F<sub>Y</sub>]</span> <em>(needed for previous layers)</em></li>
+        <li><span class="shape">dIn[B<sub>X</sub>, D<sub>Y</sub>]</span> = <span class="op op-rs">ReduceScatter</span><sub>Y</sub>(<span class="shape">dIn[B<sub>X</sub>, D]</span> {U<sub>Y</sub>}) <em>(on critical path)</em></li>
+      </ol>
+    </div>
+  </details>
+
+  <p><strong>What's the right combination of FSDP and TP?</strong> A simple but
+  key maxim is that FSDP moves weights and tensor parallelism moves
+  activations. That means as our batch size shrinks (especially as we do more
+  data parallelism), tensor parallelism becomes cheaper because our activations
+  per-shard are smaller.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+  This maxim is <a href="#roofline">the primer</a>'s weights-move vs
+  activations-move toggle made load-bearing: per layer in bf16, FSDP's freight
+  is 2 · <i class="v v-D">D</i> · <span class="t-show inline" data-expr="E>1"><i class="v">E</i> · </span><i class="v v-F">F</i>/<i class="v v-Y">Y</i> =
+  <span class="t-out" data-expr="2*D*E*F/Y" data-fmt="bytes"></span> of weights
+  while TP's is 2 · <i class="v v-B">B</i> · <i class="v v-D">D</i>/<i class="v v-X">X</i> =
+  <span class="t-out" data-expr="2*B*D/X" data-fmt="bytes"></span> of
+  activations — each scheme shrinks the <em>other's</em> bill.</span></span></p>
+
+  <ul>
+    <li>Tensor parallelism performs
+      <span class="op op-ag">AllGather</span><sub>Y</sub>(<span class="shape">[B<sub>X</sub>, D<sub>Y</sub>]</span>)
+      which shrinks as <i class="v v-X">X</i> grows.</li>
+    <li>FSDP performs
+      <span class="op op-ag">AllGather</span><sub>X</sub>(<span class="shape">[D<sub>X</sub>, F<sub>Y</sub>]</span>)
+      which shrinks as <i class="v v-Y">Y</i> grows.</li>
+  </ul>
+
+  <p>Thus by combining both we can push our minimum batch size per replica down
+  even more. We can calculate the optimal amount of FSDP and TP in the same way
+  as above:</p>
+
+  <p>Let <i class="v v-X">X</i> be the number of chips dedicated to FSDP and
+  <i class="v v-Y">Y</i> be the number of chips dedicated to tensor
+  parallelism. Let <i class="v v-N">N</i> be the total number of chips in our
+  slice with <span class="eq-i"><i class="v v-N">N</i> = <i class="v v-X">X</i><i class="v v-Y">Y</i></span>.
+  Let <i class="v v-M">M<sub>X</sub></i> and <i class="v v-M">M<sub>Y</sub></i>
+  be the number of mesh axes over which we do FSDP and TP respectively (these
+  should roughly sum to 3). We'll purely model the forward pass since it has
+  the most communication per FLOP. Then adding up the comms in the algorithm
+  above, we have</p>
+
+  <div class="eq">
+    T<sub>FSDP comms</sub>(<i class="v v-B">B</i>, <i class="v v-X">X</i>, <i class="v v-Y">Y</i>) =
+    <span class="frac"><span>2 · 2 · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span><i class="v v-Y">Y</i> · <i class="v v-W">W<sub>ici</sub></i> · <i class="v v-M">M<sub>X</sub></i></span></span>
+  </div>
+
+  <div class="eq">
+    T<sub>TP comms</sub>(<i class="v v-B">B</i>, <i class="v v-X">X</i>, <i class="v v-Y">Y</i>) =
+    <span class="frac"><span>2 · 2 · <i class="v v-B">B</i> · <i class="v v-D">D</i></span><span><i class="v v-X">X</i> · <i class="v v-W">W<sub>ici</sub></i> · <i class="v v-M">M<sub>Y</sub></i></span></span>
+  </div>
+
+  <p>And likewise our total FLOPs time is</p>
+
+  <div class="eq">
+    T<sub>math</sub> =
+    <span class="frac"><span>2 · 2 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span><i class="v v-N">N</i> · <i class="v v-C">C</i></span></span>
+  </div>
+
+  <div class="eq-live">right now, with
+    <i class="v v-M">M<sub>X</sub></i> =
+    <span class="t-var" data-var="MX" data-min="1" data-max="3" data-scale="lin" data-snap="int" data-fmt="int"></span>
+    mesh axes carrying FSDP and
+    <i class="v v-M">M<sub>Y</sub></i> =
+    <span class="t-var" data-var="MY" data-min="1" data-max="3" data-scale="lin" data-snap="int" data-fmt="int"></span>
+    carrying TP<span class="t-show inline" data-expr="E>1"> (MoE: the weight gathers carry E·F, the FLOPs k·F)</span>:
+    T<sub>FSDP comms</sub> = <span class="t-out" data-expr="4*D*E*F/(Y*Wici*MX)" data-fmt="time"></span>,
+    T<sub>TP comms</sub> = <span class="t-out" data-expr="4*B*D/(X*Wici*MY)" data-fmt="time"></span>,
+    T<sub>math</sub> = <span class="t-out" data-expr="4*B*D*k*F/(X*Y*C)" data-fmt="time"></span> per layer
+  </div>
+
+  <p>To simplify the analysis, we make two assumptions: first, we allow
+  <i class="v v-X">X</i> and <i class="v v-Y">Y</i> to take on non-integer
+  values (as long as they are positive and satisfy
+  <span class="eq-i"><i class="v v-X">X</i><i class="v v-Y">Y</i> = <i class="v v-N">N</i></span>);
+  second, we assume that we can fully overlap comms on the
+  <i class="v v-X">X</i> and <i class="v v-Y">Y</i> axis with each other. Under
+  the second assumption, the total comms time is</p>
+
+  <div class="eq">
+    T<sub>comms</sub> = max(T<sub>FSDP comms</sub>, T<sub>TP comms</sub>)
+  </div>
+
+  <p>Before we ask under what conditions we'll be compute-bound, let's find the
+  optimal values for <i class="v v-X">X</i> and <i class="v v-Y">Y</i> to
+  minimize our total communication. Since our FLOPs is independent of
+  <i class="v v-X">X</i> and <i class="v v-Y">Y</i>, the optimal settings are
+  those that simply minimize comms. To do this, let's write
+  T<sub>comms</sub> above in terms of <i class="v v-X">X</i> and
+  <i class="v v-N">N</i> (which is held fixed, as it's the number of chips in
+  our system) rather than <i class="v v-X">X</i> and <i class="v v-Y">Y</i>:</p>
+
+  <div class="eq">
+    T<sub>comms</sub>(<i class="v v-X">X</i>) =
+    <span class="frac"><span>4 · <i class="v v-D">D</i></span><span><i class="v v-W">W<sub>ici</sub></i></span></span>
+    · max<span class="eq-i">(
+    <span class="frac"><span><i class="v v-F">F</i> · <i class="v v-X">X</i></span><span><i class="v v-N">N</i> · <i class="v v-M">M<sub>X</sub></i></span></span>,
+    <span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-X">X</i> · <i class="v v-M">M<sub>Y</sub></i></span></span>
+    )</span>
+  </div>
+
+  <p>Because T<sub>FSDP comms</sub> is monotonically increasing in
+  <i class="v v-X">X</i>, and T<sub>TP comms</sub> is monotonically decreasing
+  in <i class="v v-X">X</i>, the maximum must be minimized when
+  <span class="eq-i">T<sub>FSDP comms</sub> = T<sub>TP comms</sub></span>,
+  which occurs when</p>
+
+  <div class="eq">
+    <span class="frac"><span><i class="v v-F">F</i> · X<sub>opt</sub></span><span><i class="v v-M">M<sub>X</sub></i></span></span>
+    = <span class="frac"><span><i class="v v-B">B</i> · <i class="v v-N">N</i></span><span>X<sub>opt</sub> · <i class="v v-M">M<sub>Y</sub></i></span></span>
+    &nbsp;→&nbsp;
+    X<sub>opt</sub> =
+    <span class="sqrt"><span><span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-F">F</i></span></span> · <span class="frac"><span><i class="v v-M">M<sub>X</sub></i></span><span><i class="v v-M">M<sub>Y</sub></i></span></span> · <i class="v v-N">N</i></span></span>
+  </div>
+
+  <div class="eq-live">right now:
+    X<sub>opt</sub> = <span class="t-out" data-expr="sqrt(B*MX*N/(E*F*MY))" data-fmt="sig3"></span><span class="t-show inline" data-expr="E>1"> (the weight term is E·F wide, so E joins F under the radical)</span>
+    → nearest power of two:
+    <span class="t-out" data-expr="pow(2, round(log2(max(1, min(N, sqrt(B*MX*N/(E*F*MY)))))))" data-fmt="int"></span>
+    chips of FSDP, with the current
+    <i class="v v-X">X</i> = <span class="t-out" data-expr="X" data-fmt="int"></span>,
+    <i class="v v-Y">Y</i> = <span class="t-out" data-expr="Y" data-fmt="int"></span>
+  </div>
+
+  <p>This is super useful! This tells us, for a given <i class="v v-B">B</i>,
+  <i class="v v-F">F</i>, and <i class="v v-N">N</i>, what amount of FSDP is
+  optimal. Let's get a sense of scale. Plugging in realistic values, namely
+  <i class="v v-N">N</i> = 64 (corresponding to a 4x4x4 array of chips),
+  <i class="v v-B">B</i> = 48,000, <i class="v v-F">F</i> = 32768, gives
+  roughly <span class="eq-i">X ≈ <span class="t-out" data-expr="sqrt(48000*2*64/32768)" data-fmt="sig3"></span></span>.
+  So we would choose <i class="v v-X">X</i> to be 16 and
+  <i class="v v-Y">Y</i> to be 4, close to our calculated
+  optimum.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+  The chapter rounds this to ≈13.9; the pinned live value here is
+  √(48,000 · 2 · 64 / 32,768) exactly. And at whatever is loaded right now,
+  X<sub>opt</sub> =
+  <span class="t-out" data-expr="sqrt(B*MX*N/(E*F*MY))" data-fmt="sig3"></span>.
+  Press the first button below to load the chapter's exact scenario into the
+  whole page.</span></span></p>
+
+  <div class="preset-row"><span class="preset-label">Try:</span>
+    <button class="t-preset" data-set='{"X":16,"Y":4,"B":48000,"F":32768,"MX":2,"MY":1}'>chapter example: 4×4×4 cube, B=48k, F=32,768</button>
+    <button class="t-preset" data-set='{"X":512,"Y":8,"B":2000000,"F":28672,"MX":2,"MY":1}'>back to page defaults</button>
+  </div>
+
+  <div class="takeaway"><strong>Takeaway:</strong> in general, during training,
+  the optimal amount of FSDP is
+  <span class="eq-i">X<sub>opt</sub> =
+  <span class="sqrt"><span><span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-F">F</i></span></span> · <span class="frac"><span><i class="v v-M">M<sub>X</sub></i></span><span><i class="v v-M">M<sub>Y</sub></i></span></span> · <i class="v v-N">N</i></span></span></span>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+  You can <em>feel</em> this optimum in the figure below, which holds
+  <i class="v v-N">N</i> fixed and sweeps the split. Try: drag the marker to
+  either extreme — all-FSDP on the right, all-TP on the left — and watch the
+  envelope climb; then drag
+  <i class="v v-B">B</i> =
+  <span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span>
+  and watch the valley migrate right like √<i class="v v-B">B</i>, or widen
+  <i class="v v-F">F</i> =
+  <span class="t-var" data-var="F" data-min="1024" data-max="262144" data-scale="log" data-snap="pow2" data-fmt="int"></span>
+  and watch it slide left.</span></span></div>
+
+  <figure class="breakout">
+    <div class="widget" data-widget="xy-explorer" data-opts='{}'></div>
+    <figcaption>Trading FSDP for tensor parallelism at fixed
+    <i class="v v-N">N</i> = <span class="t-out" data-expr="N" data-fmt="int"></span>.
+    Blue: T<sub>FSDP comms</sub>, rising in <i class="v v-X">X</i>. Orange:
+    T<sub>TP comms</sub>, falling in <i class="v v-X">X</i>. The emphasized
+    upper envelope is what you actually wait for; the dashed ink line is
+    T<sub>math</sub>, and wherever the envelope dips below it the layer is
+    compute-bound. Drag the marker: it sets <i class="v v-X">X</i> (and
+    <i class="v v-Y">Y</i> = <i class="v v-N">N</i>/<i class="v v-X">X</i>) for
+    the whole page. The dotted drop-line marks X<sub>opt</sub> =
+    <span class="t-out" data-expr="sqrt(B*MX*N/(E*F*MY))" data-fmt="sig3"></span>.</figcaption>
+  </figure>
+
+  <p>Now let's return to the question we've been asking of all our parallelism
+  strategies: <strong>under what conditions will we be
+  compute-bound?</strong> Since we can overlap FLOPs and comms, we are
+  compute-bound when<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+  Same question as <a href="#roofline">the primer</a>'s: does the slower of the
+  two comms clocks fit under the compute clock?</span></span></p>
+
+  <div class="eq">
+    max(T<sub>FSDP comms</sub>, T<sub>TP comms</sub>) &lt; T<sub>math</sub>
+  </div>
+
+  <p>By letting
+  <span class="eq-i">α ≡ <i class="v v-C">C</i> / <i class="v v-W">W<sub>ici</sub></i></span>,
+  the ICI arithmetic intensity, we can simplify:</p>
+
+  <div class="eq">
+    max<span class="eq-i">(
+    <span class="frac"><span><i class="v v-F">F</i></span><span><i class="v v-Y">Y</i> · <i class="v v-M">M<sub>X</sub></i></span></span>,
+    <span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-X">X</i> · <i class="v v-M">M<sub>Y</sub></i></span></span>
+    )</span>
+    &lt;
+    <span class="frac"><span><i class="v v-B">B</i> · <i class="v v-F">F</i></span><span><i class="v v-N">N</i> · α</span></span>
+  </div>
+
+  <p>Since we calculated X<sub>opt</sub> to make the LHS maximum equal, we can
+  just plug it into either side (noting that
+  <span class="eq-i">Y<sub>opt</sub> = <i class="v v-N">N</i>/X<sub>opt</sub></span>),
+  i.e.</p>
+
+  <div class="eq">
+    <span class="frac"><span><i class="v v-F">F</i></span><span><i class="v v-N">N</i> · <i class="v v-W">W<sub>ici</sub></i> · <i class="v v-M">M<sub>X</sub></i></span></span>
+    <span class="sqrt"><span><span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-F">F</i></span></span> · <span class="frac"><span><i class="v v-M">M<sub>X</sub></i></span><span><i class="v v-M">M<sub>Y</sub></i></span></span> · <i class="v v-N">N</i></span></span>
+    &lt;
+    <span class="frac"><span><i class="v v-B">B</i> · <i class="v v-F">F</i></span><span><i class="v v-N">N</i> · <i class="v v-C">C</i></span></span>
+  </div>
+
+  <p>Further simplifying, we find that</p>
+
+  <div class="eq">
+    <span class="sqrt"><span><span class="frac"><span><i class="v v-B">B</i> · <i class="v v-F">F</i></span><span><i class="v v-M">M<sub>X</sub></i> · <i class="v v-M">M<sub>Y</sub></i> · <i class="v v-N">N</i></span></span></span></span>
+    &lt;
+    <span class="frac"><span><i class="v v-B">B</i> · <i class="v v-F">F</i></span><span><i class="v v-N">N</i> · α</span></span>,
+  </div>
+
+  <p>where the left-hand-side is proportional to the communication time and the
+  right-hand-side is proportional to the computation time. Note that while the
+  computation time scales linearly with the batch size (as it does regardless
+  of parallelism), the communication time scales as the square root of the
+  batch size. The ratio of the computation to communication time thus also
+  scales as the square root of the batch size:</p>
+
+  <div class="eq">
+    <span class="frac"><span>T<sub>math</sub></span><span>T<sub>comms</sub></span></span>
+    =
+    <span class="frac"><span><span class="sqrt"><span><i class="v v-B">B</i><i class="v v-F">F</i></span></span> <span class="sqrt"><span><i class="v v-M">M<sub>X</sub></i> <i class="v v-M">M<sub>Y</sub></i></span></span></span><span>α <span class="sqrt"><span><i class="v v-N">N</i></span></span></span></span>
+  </div>
+  <div class="eq-live">right now:
+    T<sub>math</sub>/T<sub>comms</sub> =
+    <span class="t-out" data-expr="k*sqrt(B*F*MX*MY)/(alpha*sqrt(N*E))" data-fmt="x"></span>
+    at the optimal mix, with α =
+    <span class="t-out" data-expr="alpha" data-fmt="int"></span><span class="t-show inline" data-expr="E>1"> (MoE: the ratio gains k/√E — FLOPs carry k·F, the gathered weights E·F)</span>
+  </div>
+
+  <p>To ensure that this ratio is greater than one so we are compute bound, we
+  require</p>
+
+  <div class="eq">
+    <span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-N">N</i></span></span>
+    &gt;
+    <span class="frac"><span>α<sup>2</sup></span><span><i class="v v-M">M<sub>X</sub></i> · <i class="v v-M">M<sub>Y</sub></i> · <i class="v v-F">F</i></span></span>
+  </div>
+
+  <div class="eq-live">right now:
+    <i class="v v-B">B</i>/<i class="v v-N">N</i> =
+    <span class="t-out" data-expr="B/N" data-fmt="int"></span> vs threshold
+    <span class="t-show inline" data-expr="E>1">α²·E/(M<sub>X</sub>·M<sub>Y</sub>·k²·F) = </span><span class="t-out" data-expr="alpha*alpha*E/(MX*MY*k*k*F)" data-fmt="int"></span>
+    tokens/chip →
+    <span class="t-if" data-expr="B/N &gt; alpha*alpha*E/(MX*MY*k*k*F)" data-then="compute-bound at the optimal mix ✓" data-else="comms-bound even at the optimal mix ✗"></span>
+  </div>
+
+  <p>To get approximate numbers, again plug in <i class="v v-F">F</i> = 32,768,
+  α = 2550, and
+  <span class="eq-i"><i class="v v-M">M<sub>X</sub></i><i class="v v-M">M<sub>Y</sub></i> = 2</span>
+  (as it must be for a 3D mesh). This gives roughly
+  <span class="eq-i"><i class="v v-B">B</i>/<i class="v v-N">N</i> &gt;
+  <span class="t-out" data-expr="2550*2550/(2*32768)" data-fmt="int"></span></span>.
+  This roughly wins us a factor of eight compared to the purely data parallel
+  (or FSDP) case, where assuming a 3D mesh we calculate that
+  <i class="v v-B">B</i>/<i class="v v-N">N</i> must exceed about
+  <span class="t-out" data-expr="2550/3" data-fmt="int"></span> to be compute
+  bound.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+  At this page's live values the threshold is
+  <span class="t-out" data-expr="alpha*alpha*E/(MX*MY*k*k*F)" data-fmt="int"></span>
+  tokens/chip (the 850 for pure FSDP is α/3, all three mesh axes carrying the
+  weight collectives). Watch the two clocks race in the meter below. Try: drag
+  <i class="v v-B">B</i> =
+  <span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span>
+  down until the verdict flips to comms-bound, then check
+  <i class="v v-B">B</i>/<i class="v v-N">N</i> =
+  <span class="t-out" data-expr="B/N" data-fmt="int"></span> against the
+  threshold — the flip lands right at the ridge (assuming
+  <i class="v v-X">X</i> is near X<sub>opt</sub>; if it's far off, the flip
+  comes sooner).</span></span></p>
+
+  <figure class="breakout">
+    <div class="widget" data-widget="bound-meter" data-opts='{"scheme":"mixed"}'></div>
+    <figcaption>T<sub>math</sub> vs T<sub>comms</sub> = max(T<sub>FSDP</sub>,
+    T<sub>TP</sub>) for one mixed FSDP + TP layer, to scale, with the verdict
+    at the current <i class="v v-X">X</i> =
+    <span class="t-out" data-expr="X" data-fmt="int"></span>,
+    <i class="v v-Y">Y</i> =
+    <span class="t-out" data-expr="Y" data-fmt="int"></span>.</figcaption>
+  </figure>
+
+  <div class="takeaway"><strong>Takeaway:</strong> combining tensor parallelism
+  with FSDP allows us to drop to a
+  <i class="v v-B">B</i>/<i class="v v-N">N</i> of
+  <span class="eq-i"><span class="frac"><span>2550<sup>2</sup></span><span>2<i class="v v-F">F</i></span></span></span>.
+  This lets us handle a batch of as little as 100 per chip, which is roughly a
+  factor of eight smaller than we could achieve with just FSDP.</div>
+
+  <p>Below we plot the ratio of FLOPs to comms time for mixed FSDP + TP,
+  comparing it both to only tensor parallelism (TP) and only data parallelism
+  (FSDP), on a representative 4x4x4 chip array. While pure FSDP parallelism
+  dominates for very large batch sizes, in the regime where batch size over
+  number of chips is between roughly 100 and 850, a mixed FSDP + TP strategy is
+  required in order to be
+  compute-bound.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+  The live chart below plays this figure's role: flip its view toggle to
+  <em>ratio</em> to see T<sub>math</sub>/T<sub>comms</sub> for all three
+  schemes, where any curve above 1 is compute-bound. It is drawn at the page's
+  current <i class="v v-N">N</i> =
+  <span class="t-out" data-expr="N" data-fmt="int"></span> chips — press the
+  4×4×4 chapter-example preset above to reproduce the chapter's exact
+  frame.</span></span></p>
+
+  <p>Here's another example of TPU v5p 16x16x16 showing the FLOPs and comms
+  time as a function of batch size for different sharding
+  schemes.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+  That second figure is the same chart in <em>absolute-times</em> view. A
+  16x16x16 slice is 4096 chips — exactly the page's default
+  <i class="v v-X">X</i>·<i class="v v-Y">Y</i> = 512 · 8, so the
+  &ldquo;back to page defaults&rdquo; preset above reproduces it.</span></span></p>
+
+  <p>The black curve is the amount of time spent on model FLOPs, meaning any
+  batch size where this is lower than all comms costs is strictly comms bound.
+  You'll notice the black curve intersects the aqua curve at about
+  <span class="eq-i">4e5</span>, as
+  predicted.<span class="sn edit"><button class="sn-ref" aria-label="edit note">Δ</button><span class="sn-body"><span class="sn-tag">edited</span> The
+  chapter reads: <span class="orig">“You'll notice the black curve intersects
+  the green curve at about 4e5, as predicted.”</span> — the mixed FSDP + TP
+  curve is aqua in this page's palette, so the color word was
+  changed.<span class="sn-post"><span class="sn-tag">adaptation</span>
+  On the live chart that crossing sits at
+  <i class="v v-B">B</i> = <i class="v v-N">N</i>·α²<span class="t-show inline" data-expr="E>1">·<i class="v">E</i></span>/(<i class="v v-M">M<sub>X</sub></i>·<i class="v v-M">M<sub>Y</sub></i>·<span class="t-show inline" data-expr="E>1"><i class="v">k</i>²·</span><i class="v v-F">F</i>) =
+  <span class="t-out" data-expr="N*alpha*alpha*E/(MX*MY*k*k*F)" data-fmt="tokens"></span>
+  total tokens; the chapter's 4e5 is this same formula evaluated at its
+  16x16x16, F ≈ 30k scenario.</span></span></span></p>
+
+  <p>Here's an interactive animation to play with this, showing the total
+  compute time and communication time for different batch sizes:</p>
+
+  <figure class="breakout">
+    <div class="widget" data-widget="roofline-chart" data-opts='{}'></div>
+    <figcaption>Time per layer versus batch size for
+    <i class="v v-N">N</i> = <span class="t-out" data-expr="N" data-fmt="int"></span>
+    chips. Dashed ink: T<sub>math</sub>, the matmul FLOPs — any comms curve
+    sitting above it means that scheme is comms-bound at that batch. Blue:
+    FSDP-only comms, flat, because weights don't hear the batch size. Orange:
+    TP-only comms, rising in lock-step with T<sub>math</sub>. Aqua: optimally
+    mixed FSDP + TP, rising like √<i class="v v-B">B</i>. Drag the vertical
+    marker to set <i class="v v-B">B</i>; flip the view toggle between absolute
+    times and the T<sub>math</sub>/T<sub>comms</sub> ratio, where any curve
+    above 1 is compute-bound.</figcaption>
+  </figure>
+
+  <p>You'll notice this generally agrees with the above (minimum around
+  FSDP=256, TP=16), plus or minus some wiggle factor for some slight
+  differences in the number of axes for
+  each.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+  The chapter's animation swept the FSDP/TP split itself; on this page that
+  sweep is the earlier X-axis explorer, whose optimum at the current state is
+  X<sub>opt</sub> =
+  <span class="t-out" data-expr="sqrt(B*MX*N/(E*F*MY))" data-fmt="sig3"></span>
+  → nearest power of two
+  <span class="t-out" data-expr="pow(2, round(log2(max(1, min(N, sqrt(B*MX*N/(E*F*MY)))))))" data-fmt="int"></span>-way
+  FSDP. The ±wiggle from mesh-axis bookkeeping is exactly the
+  M<sub>X</sub>, M<sub>Y</sub> factors you can scrub above.</span></span></p>
+</section>

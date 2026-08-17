@@ -1,0 +1,271 @@
+<!-- ============================================================
+     04-tp.html — Tensor Parallelism
+     Restored verbatim from source/training.md lines 307–382
+     (MIT license; notice ships as LICENSE-scaling-book.txt, linked
+     from the page header and footer). Adaptation voice lives only
+     in ✦ margin notes; live-number swaps follow the header's
+     global conventions.
+     ============================================================ -->
+<section id="tensor-parallelism">
+  <h2>Tensor Parallelism</h2>
+
+  <p><strong>Syntax:</strong></p>
+  <div class="eq">
+    <span class="shape">In[B, D<sub>Y</sub>]</span> ·<sub>D</sub>
+    <span class="shape">W<sub>in</sub>[D, F<sub>Y</sub>]</span> ·<sub>F</sub>
+    <span class="shape">W<sub>out</sub>[F<sub>Y</sub>, D]</span> →
+    <span class="shape">Out[B, D<sub>Y</sub>]</span>
+  </div>
+  <p>(we use <i class="v v-Y">Y</i> to eventually combine with FSDP)</p>
+
+  <p>In a fully-sharded data-parallel <span class="op op-ar">AllReduce</span> we
+  move the weights across chips. We can also shard the feedforward dimension of
+  the model and move the activations during the layer — this is called
+  &ldquo;1D model parallelism&rdquo; or Megatron sharding
+  (<a href="https://arxiv.org/abs/1909.08053">Shoeybi et al. 2019</a>). This can
+  unlock a smaller efficient batch size per pod.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+  This is the flat orange line from <a href="#roofline">the roofline primer</a>:
+  when the <em>activations</em> move, the comms cost scales with the batch just
+  as the compute does, so its efficiency doesn&rsquo;t hinge on the per-chip
+  batch at all — which is exactly why it can unlock a smaller efficient batch
+  per pod.</span></span> The figure below shows an example of a single matrix
+  sharded in this way:</p>
+
+  <figure class="breakout">
+    <div class="widget" data-widget="shard-grid" data-opts='{"scheme":"tp"}'></div>
+    <figcaption>An example of basic tensor parallelism. Since we're only sharding
+    our activations over <i class="v v-Y">Y</i> (unlike in FSDP where we shard
+    over <i class="v v-X">X</i>), we replicate our activations over
+    <i class="v v-X">X</i>. Using our standard syntax, this is
+    <span class="shape">A[B, D<sub>Y</sub>]</span> ·
+    <span class="shape">B[D, F<sub>Y</sub>]</span> →
+    <span class="shape">C[B, F<sub>Y</sub>]</span>. Because we're only sharding
+    over one of the contracting dimensions, we typically
+    <span class="op op-ag">AllGather</span> the activations <em>A</em> before the
+    matmul. Hover a chip to see which shards it owns.</figcaption>
+  </figure>
+
+  <p>As noted, <strong><span class="shape">In[B, D<sub>Y</sub>]</span> ·<sub>D</sub>
+  <span class="shape">W<sub>in</sub>[D, F<sub>Y</sub>]</span> ·<sub>F</sub>
+  <span class="shape">W<sub>out</sub>[F<sub>Y</sub>, D]</span> →
+  <span class="shape">Out[B, D<sub>Y</sub>]</span> means we have to gather our
+  activations before the first matmul. This is cheaper than ZeRO sharding when
+  the activations are smaller than the weights.</strong><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+  Compare the two freights live, per layer in bf16: gathering activations moves
+  2 · <i class="v v-B">B</i> · <i class="v v-D">D</i> =
+  <span class="t-out" data-expr="2*B*D" data-fmt="bytes"></span>, gathering
+  weights moves 2 · <i class="v v-D">D</i> · <span class="t-show inline" data-expr="E>1"><i class="v">E</i> · </span><i class="v v-F">F</i> =
+  <span class="t-out" data-expr="2*D*E*F" data-fmt="bytes"></span> — right now the
+  lighter freight is
+  <span class="t-if" data-expr="2*B*D &lt; 2*D*E*F" data-then="the activations, so tensor parallelism moves less" data-else="the weights, so FSDP moves less"></span>.
+  Try: drag <i class="v v-B">B</i> =
+  <span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span>
+  down toward the per-group batches a mixed scheme would see (a few thousand
+  tokens) and watch the verdict flip in the activations&rsquo; favor.</span></span>
+  This is typically true only with some amount of ZeRO sharding added (which
+  reduces the size of the gather). This is one of the reasons we tend to mix
+  ZeRO sharding and tensor parallelism.</p>
+
+  <details class="algo">
+    <summary>Here's the algorithm for tensor parallelism!</summary>
+    <div class="algorithm">
+      <p><strong>Tensor Parallelism:</strong><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+      Watch the phrase <em>on critical path</em>. With pure data parallelism the
+      <span class="op op-ar">AllReduce</span> happened after the loss was already
+      computed, so the network could grind away while the chips moved on. Here
+      the matmuls cannot start until the gathers finish — these collectives sit
+      squarely in the layer&rsquo;s serial path.</span></span></p>
+      <p><strong>Forward pass:</strong> need to compute <span class="shape">Loss[B]</span></p>
+      <ol>
+        <li><span class="shape">In[B, D]</span> = <span class="op op-ag">AllGather</span>(<span class="shape">In[B, D<sub>Y</sub>]</span>) <em>(on critical path)</em></li>
+        <li><span class="shape">Tmp[B, F<sub>Y</sub>]</span> = <span class="shape">In[B, D]</span> ·<sub>D</sub> <span class="shape">W<sub>in</sub>[D, F<sub>Y</sub>]</span> <em>(not sharded along contracting, so no comms)</em></li>
+        <li><span class="shape">Out[B, D] {U<sub>Y</sub>}</span> = <span class="shape">Tmp[B, F<sub>Y</sub>]</span> ·<sub>F</sub> <span class="shape">W<sub>out</sub>[F<sub>Y</sub>, D]</span></li>
+        <li><span class="shape">Out[B, D<sub>Y</sub>]</span> = <span class="op op-rs">ReduceScatter</span>(<span class="shape">Out[B, D] {U<sub>Y</sub>}</span>) <em>(on critical path)</em></li>
+        <li><span class="shape">Loss[B]</span> = …</li>
+      </ol>
+      <p><strong>Backward pass:</strong> need to compute
+      <span class="shape">dW<sub>out</sub>[F<sub>Y</sub>, D]</span>,
+      <span class="shape">dW<sub>in</sub>[D, F<sub>Y</sub>]</span></p>
+      <ol>
+        <li><span class="shape">dOut[B, D<sub>Y</sub>]</span> = …</li>
+        <li><span class="shape">dOut[B, D]</span> = <span class="op op-ag">AllGather</span>(<span class="shape">dOut[B, D<sub>Y</sub>]</span>) <em>(on critical path)</em></li>
+        <li><span class="shape">dW<sub>out</sub>[F<sub>Y</sub>, D]</span> = <span class="shape">Tmp[B, F<sub>Y</sub>]</span> ·<sub>B</sub> <span class="shape">dOut[B, D]</span></li>
+        <li><span class="shape">dTmp[B, F<sub>Y</sub>]</span> = <span class="shape">dOut[B, D]</span> ·<sub>D</sub> <span class="shape">W<sub>out</sub>[F<sub>Y</sub>, D]</span> <em>(can throw away dOut[B, D] here)</em></li>
+        <li><span class="shape">In[B, D]</span> = <span class="op op-ag">AllGather</span>(<span class="shape">In[B, D<sub>Y</sub>]</span>) <em>(this can be skipped by sharing with (1) from the forward pass)</em></li>
+        <li><span class="shape">dW<sub>in</sub>[D, F<sub>Y</sub>]</span> = <span class="shape">In[B, D]</span> ·<sub>B</sub> <span class="shape">dTmp[B, F<sub>Y</sub>]</span></li>
+        <li><span class="shape">dIn[B, D] {U<sub>Y</sub>}</span> = <span class="shape">dTmp[B, F<sub>Y</sub>]</span> ·<sub>F</sub> <span class="shape">W<sub>in</sub>[D, F<sub>Y</sub>]</span> <em>(needed for previous layers)</em></li>
+        <li><span class="shape">dIn[B, D<sub>Y</sub>]</span> = <span class="op op-rs">ReduceScatter</span>(<span class="shape">dIn[B, D] {U<sub>Y</sub>}</span>) <em>(on critical path)</em></li>
+      </ol>
+    </div>
+  </details>
+
+  <p>One nice thing about tensor parallelism is that it interacts nicely with
+  the two matrices in our Transformer forward pass. Naively, we would do an
+  <span class="op op-ar">AllReduce</span> after each of the two matrices. But
+  here we first do <strong><span class="shape">In[B, D<sub>Y</sub>]</span> ·
+  <span class="shape">W<sub>in</sub>[D, F<sub>Y</sub>]</span> →
+  <span class="shape">Tmp[B, F<sub>Y</sub>]</span></strong> and then
+  <strong><span class="shape">Tmp[B, F<sub>Y</sub>]</span> ·
+  <span class="shape">W<sub>out</sub>[F<sub>Y</sub>, D]</span> →
+  <span class="shape">Out[B, D<sub>Y</sub>]</span></strong>. This means we
+  <span class="op op-ag">AllGather</span> <strong>In</strong> at the beginning,
+  and <span class="op op-rs">ReduceScatter</span> <strong>Out</strong> at the
+  end, rather than doing an AllReduce.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+  And since an <span class="op op-ar">AllReduce</span> is itself an AllGather
+  plus a ReduceScatter, one AllGather in and one ReduceScatter out is
+  <em>half</em> the bytes of the naive two-AllReduce plan.</span></span></p>
+
+  <p><strong>How costly is this?</strong> Let's only model the forward pass -
+  the backwards pass is just the transpose of each operation here. In 1D tensor
+  parallelism we AllGather the activations before the first matmul, and
+  ReduceScatter them after the second, sending two bytes at a time (bf16). Let's
+  figure out when we're bottlenecked by communication.</p>
+
+  <div class="eq">
+    <span class="eq-i">T<sub>math</sub> =
+      <span class="frac"><span>4 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span><i class="v v-Y">Y</i> · <i class="v v-C">C</i></span></span></span>
+    &nbsp;&nbsp;
+    <span class="eq-i">T<sub>comms</sub> =
+      <span class="frac"><span>2 · 2 · (<i class="v v-B">B</i> · <i class="v v-D">D</i>)</span><span><i class="v v-W">W<sub>ici</sub></i></span></span></span>
+    &nbsp;&nbsp;
+    <span class="eq-i">T ≈ max
+      <span class="frac"><span>4 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span><i class="v v-Y">Y</i> · <i class="v v-C">C</i></span></span>,
+      <span class="frac"><span>2 · 2 · (<i class="v v-B">B</i> · <i class="v v-D">D</i>)</span><span><i class="v v-W">W<sub>ici</sub></i></span></span></span>
+  </div>
+  <div class="eq-live">right now, per layer, with
+    <i class="v v-M">M<sub>Y</sub></i> =
+    <span class="t-var" data-var="MY" data-min="1" data-max="3" data-scale="lin" data-snap="int" data-fmt="int"></span>
+    ICI axes carrying Y<span class="t-show inline" data-expr="E>1"> (MoE: the sharded math runs through the activated width k·F)</span>:
+    <span class="t-out" data-expr="4*B*D*k*F/(Y*C)" data-fmt="time"></span> of math vs
+    <span class="t-out" data-expr="4*B*D/(Wici*MY)" data-fmt="time"></span> of comms →
+    <span class="t-if" data-expr="k*F &gt; Y*alpha/MY" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
+  </div>
+
+  <p>Noting that we want compute cost to be greater than comms cost, we
+  get:<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+  Notice that <i class="v v-B">B</i> · <i class="v v-D">D</i> appears in
+  <em>both</em> clocks, so the batch cancels out of the ratio. This is the flat
+  orange line from <a href="#roofline">the primer</a>: tensor parallelism&rsquo;s
+  compute-to-comms ratio is pinned at
+  <span class="t-show inline" data-expr="E>1"><i class="v">k</i> · </span><i class="v v-F">F</i> · <i class="v v-M">M<sub>Y</sub></i> / (<i class="v v-Y">Y</i> · α) =
+  <span class="t-out" data-expr="k*F*MY/(Y*alpha)" data-fmt="x"></span> no matter
+  the batch — a weight-moving scheme can hide its comms behind more tokens per
+  chip, but no batch size can raise this bar.</span></span></p>
+
+  <div class="eq">
+    <span class="frac"><span>4 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span><i class="v v-Y">Y</i> · <i class="v v-C">C</i></span></span>
+    &gt;
+    <span class="frac"><span>2 · 2 · (<i class="v v-B">B</i> · <i class="v v-D">D</i>)</span><span><i class="v v-W">W<sub>ici</sub></i></span></span>
+  </div>
+
+  <div class="eq">
+    <span class="frac"><span><i class="v v-F">F</i></span><span><i class="v v-Y">Y</i> · <i class="v v-C">C</i></span></span>
+    &gt;
+    <span class="frac"><span>1</span><span><i class="v v-W">W<sub>ici</sub></i></span></span>
+  </div>
+
+  <div class="eq">
+    <i class="v v-F">F</i> &gt; <i class="v v-Y">Y</i> ·
+    <span class="frac"><span><i class="v v-C">C</i></span><span><i class="v v-W">W<sub>ici</sub></i></span></span>
+  </div>
+  <div class="eq-live">right now:
+    <i class="v v-F">F</i> =
+    <span class="t-var" data-var="F" data-min="1024" data-max="262144" data-scale="log" data-snap="pow2" data-fmt="si"></span>
+    <span class="t-show inline" data-expr="E>1">(activated width k·F =
+    <span class="t-out" data-expr="k*F" data-fmt="si"></span> — the width the
+    sharded math actually runs through)</span>
+    vs <i class="v v-Y">Y</i> · α / <i class="v v-M">M<sub>Y</sub></i> =
+    <span class="t-out" data-expr="Y*alpha/MY" data-fmt="si"></span>
+    at <i class="v v-Y">Y</i> =
+    <span class="t-var" data-var="Y" data-min="1" data-max="256" data-scale="log" data-snap="pow2" data-fmt="int"></span>
+    → <span class="t-if" data-expr="k*F &gt; Y*alpha/MY" data-then="under the roof — compute-bound ✓" data-else="over the roof — communication-bound ✗"></span>
+  </div>
+
+  <p>Thus for instance, for TPUv5p,
+  <span class="eq-i"><i class="v v-C">C</i>/<i class="v v-W">W<sub>ici</sub></i></span> =
+  <span class="t-out" data-expr="alpha" data-fmt="int"></span> in bf16, so we can
+  only do tensor parallelism up to
+  <span class="eq-i"><i class="v v-Y">Y</i> &lt; <i class="v v-F">F</i> / <span class="t-out" data-expr="alpha" data-fmt="int"></span></span>.
+  When we have multiple ICI axes, our T<sub>comms</sub> is reduced by a factor of
+  <i class="v v-M">M<sub>Y</sub></i>, so we get
+  <span class="eq-i"><i class="v v-Y">Y</i> &lt; <i class="v v-M">M<sub>Y</sub></i> · <i class="v v-F">F</i> / <span class="t-out" data-expr="alpha" data-fmt="int"></span></span>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+  Try it on the meter below: double <i class="v v-Y">Y</i> =
+  <span class="t-var" data-var="Y" data-min="1" data-max="256" data-scale="log" data-snap="pow2" data-fmt="int"></span>
+  (press ↑ with it focused) and keep doubling until the verdict flips. Then drag
+  <i class="v v-B">B</i> =
+  <span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span>
+  as hard as you like and confirm the batch is powerless to flip it back.</span></span></p>
+
+  <figure class="breakout">
+    <div class="widget" data-widget="bound-meter" data-opts='{"scheme":"tp"}'></div>
+    <figcaption>T<sub>math</sub> vs T<sub>comms</sub> for one tensor-parallel
+    layer, to scale. Unlike the DP and FSDP meters, dragging
+    <i class="v v-B">B</i> stretches <em>both</em> bars in lockstep — only
+    <i class="v v-F">F</i>, <i class="v v-Y">Y</i>, and
+    <i class="v v-M">M<sub>Y</sub></i> can change the verdict.</figcaption>
+  </figure>
+
+  <div class="takeaway"><strong>Takeaway:</strong> Tensor Parallelism becomes
+  communication bound when
+  <span class="eq-i"><i class="v v-Y">Y</i> &gt; <i class="v v-M">M<sub>Y</sub></i> · <i class="v v-F">F</i> / <span class="t-out" data-expr="alpha" data-fmt="int"></span></span>.
+  For most models this is between 8 and 16-way tensor
+  parallelism.<span class="t-show inline" data-expr="gpu"><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+  On GPUs the same bound holds with <i class="v v-W">W</i> read as the per-GPU
+  NVLink egress bandwidth, which generally pins tensor parallelism inside a
+  single node (Y ≤ 8) or at most two (<a href="#gpus">details</a>).</span></span></span></div>
+
+  <p><strong>Note that this doesn't depend on the precision of the
+  computation</strong>, since e.g. for int8, on TPUv5p,
+  <span class="eq-i">C<sub>int8</sub>/<i class="v v-W">W<sub>ici</sub></i></span> is
+  <span class="t-out" data-expr="2*alpha" data-fmt="int"></span> instead of
+  <span class="t-out" data-expr="alpha" data-fmt="int"></span> but the comms
+  volume is also halved, so the two factors of two cancel.</p>
+
+  <p><strong>Let's think about some examples:</strong><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+  The buttons below load each model's real shape into the page's state — every
+  number, meter, and verdict recomputes when you click one. Try: with a model
+  loaded, set <i class="v v-Y">Y</i> =
+  <span class="t-var" data-var="Y" data-min="1" data-max="256" data-scale="log" data-snap="pow2" data-fmt="int"></span>
+  to 8, then 16, then 32, and watch the verdicts. Or hold the model fixed and
+  scrub <i class="v v-C">C</i> =
+  <span class="t-var" data-var="C" data-min="1e13" data-max="5e15" data-scale="log" data-fmt="flops"></span>:
+  faster chips shrink Y<sub>max</sub> =
+  <span class="t-out" data-expr="MY*k*F/alpha" data-fmt="sig3"></span>, which is
+  why each hardware generation makes tensor parallelism a little harder to
+  hide.</span></span></p>
+
+  <div class="preset-row"><span class="preset-label">Load:</span>
+    <button class="t-preset" data-set='{"D":8192,"F":28672,"L":80,"E":1,"k":1}'>LLaMA-3 70B</button>
+    <button class="t-preset" data-set='{"D":3072,"F":49152,"L":28,"E":1,"k":1}'>Gemma 7B</button>
+    <button class="t-preset" data-set='{"D":8192,"F":28672,"L":80,"Y":8}'>chapter defaults</button>
+  </div>
+
+  <ul>
+    <li>On TPUv5p with LLaMA 3-70B with <span class="eq-i">D = 8192</span>,
+    <span class="eq-i">F ≈ 30,000</span>, we can comfortably do 8-way tensor
+    parallelism, but will be communication bound on 16 way tensor parallelism.
+    The required F for 8-way model sharding is
+    20k.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+    Check it live at the current hardware: with LLaMA&nbsp;3-70B's F = 28,672
+    pinned, Y<sub>max</sub> =
+    <span class="t-out" data-expr="MY*28672/alpha" data-fmt="sig3"></span>-way;
+    8-way is
+    <span class="t-if" data-expr="28672 &gt; 8*alpha/MY" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>,
+    16-way is
+    <span class="t-if" data-expr="28672 &gt; 16*alpha/MY" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>,
+    and the required F for 8-way sharding is 8 · α / <i class="v v-M">M<sub>Y</sub></i> =
+    <span class="t-out" data-expr="8*alpha/MY" data-fmt="si"></span>.</span></span></li>
+    <li>For Gemma 7B, <span class="eq-i">F ≈ 50k</span>, so we become
+    communication bound with 19-way tensor parallelism. That means we could
+    likely do 16-way and still see good
+    performance.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
+    Check it live at the current hardware: with Gemma 7B's F = 49,152 pinned
+    (its GeGLU feedforward folds two fused gating up-projections into what we
+    count as <i class="v v-F">F</i> — hence much larger than the usual 4·D),
+    Y<sub>max</sub> =
+    <span class="t-out" data-expr="MY*49152/alpha" data-fmt="sig3"></span>-way,
+    and 16-way is
+    <span class="t-if" data-expr="49152 &gt; 16*alpha/MY" data-then="still under the roof ✓" data-else="over the roof ✗"></span>.</span></span></li>
+  </ul>
+
+</section>

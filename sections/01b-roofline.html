@@ -1,0 +1,53 @@
+<section id="roofline">
+<h2>First, Feel the Roofline</h2>
+
+<p class="dek" style="font-size:0.95rem; margin-top:-0.4rem;">✦ This entire section is an addition of this adaptation — the chapter's ideas, our framing. The original text resumes at <a href="#data-parallelism">Data Parallelism</a>.</p>
+
+<p>Everything in this chapter — every scheme, every derivation, every takeaway — is one picture wearing four costumes. Before we meet the costumes, let's get the picture into your fingers.</p>
+
+<p>When a chip works on one layer of our Transformer, two clocks run <em>at the same time</em>:</p>
+
+<p>The <strong>compute clock</strong>: the MXU has to chew through this layer's share of FLOPs. With
+<span class="v v-B">B</span> = <span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span> tokens
+split over <span class="v v-X">X</span> = <span class="t-var" data-var="X" data-min="1" data-max="65536" data-scale="log" data-snap="pow2" data-fmt="int"></span> chips,
+that's <span class="eq-i"><span class="frac"><span>4 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · <span class="t-show inline" data-expr="E>1">k·</span><i class="v v-F">F</i></span><span><i class="v v-X">X</i> · <i class="v v-C">C</i></span></span></span> =
+<span class="t-out" data-expr="4*B*D*k*F/(X*C)" data-fmt="time"></span> per layer<span class="t-show inline" data-expr="E>1"> (k·F because a token only multiplies through its k activated experts)</span>.</p>
+
+<p>The <strong>network clock</strong>: whatever bytes this scheme moves have to squeeze through the interconnect at
+<span class="v v-W">W<sub>ici</sub></span> = <span class="t-var" data-var="Wici" data-min="1e10" data-max="2e12" data-scale="log" data-fmt="bw"></span>.
+Crucially, the hardware lets these two clocks <em>overlap</em>: the network can carry bytes while the MXU multiplies. So a layer doesn't cost the <em>sum</em> of the two times — it costs the <strong>max</strong>. Communication that fits under the compute clock is <em>free</em>. Communication that pokes out past it leaves silicon idle, and that overhang is exactly what "communication-bound" means.</p>
+
+<figure class="breakout">
+  <div class="widget" data-widget="overlap-timeline" data-opts='{}'></div>
+  <figcaption>The two clocks for one layer, drawn to scale from the numbers above. Drag <span class="v v-B">B</span> or <span class="v v-X">X</span> in the paragraph (or anywhere on this page) and watch the bars. Flip the toggle to change <em>what</em> the network is carrying.</figcaption>
+</figure>
+
+<p class="try">Try: with the toggle on <strong>weights</strong>, drag <span class="v v-B">B</span> = <span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span> down and watch only the <em>compute</em> bar shrink — the network bar doesn't hear the batch size at all, so at some point the comms must poke out. Then flip to <strong>activations</strong> and drag again: now both bars move together, and no amount of batch will save you.</p>
+
+<p>That toggle is the deepest fact in this chapter. Every parallelism scheme is a choice about <em>what travels</em>:</p>
+
+<ul>
+<li>If what travels is <strong>weights</strong> — 2·<i class="v v-D">D</i>·<span class="t-show inline" data-expr="E>1">E·</span><i class="v v-F">F</i> bytes<span class="t-show inline" data-expr="E>1"> (every one of the E experts, active or not)</span>, as in data parallelism and FSDP — the network clock is <em>fixed</em>, while the compute clock scales with your per-chip batch. Big batch ⇒ compute wins ⇒ comms hidden.</li>
+<li>If what travels is <strong>activations</strong> — 2·<i class="v v-B">B</i>·<i class="v v-D">D</i> bytes, as in tensor parallelism — batch size appears on <em>both</em> clocks and cancels. Hiding then depends on the model's shape (the width a token multiplies through: <span class="t-show inline" data-expr="E>1">k·</span><i class="v v-F">F</i>) instead.</li>
+</ul>
+
+<p>Now the roofline itself. In <a href="https://jax-ml.github.io/scaling-book/roofline/">Part 1 of the original book</a>, a single chip was compute-bound only when its <em>arithmetic intensity</em> — FLOPs per byte touched — beat the ratio of FLOP speed to memory bandwidth. The identical logic applies here, one level up, with the interconnect playing the role of memory. For weight-moving schemes, your FLOPs scale with <span class="eq-i"><i class="v v-B">B</i>/<i class="v v-X">X</i></span> and your bytes don't, so:</p>
+
+<div class="eq">
+  <span class="eq-i"><span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-X">X</i></span></span>
+  <strong>is your arithmetic intensity against the network</strong>,</span><br>
+  <span class="eq-i">and the ridge of the roof sits at
+  <span class="t-show inline" data-expr="E>1"><span class="frac"><span>E</span><span>k</span></span> · </span><span class="frac"><span><i class="v v-C">C</i></span><span><i class="v v-W">W</i> · <i class="v v-M">M</i></span></span>
+  = <span class="t-out" data-expr="(E/k)*alpha/MX" data-fmt="int"></span> tokens per chip<span class="t-show inline" data-expr="E>1"> — the E/k factor because a MoE moves all E experts' weights while its FLOPs only touch k</span>.</span>
+</div>
+
+<figure class="breakout">
+  <div class="widget" data-widget="roofline-curve" data-opts='{}'></div>
+  <figcaption>The network roofline. Blue: weight-moving schemes climb the slanted part of the roof until the ridge, after which comms are fully hidden. Orange: tensor parallelism sits at a batch-independent height set by <i class="v v-F">F</i>, <i class="v v-Y">Y</i>, and the hardware. The dot is <em>this page's</em> live operating point — dragging it drags <span class="v v-B">B</span> everywhere.</figcaption>
+</figure>
+
+<p class="try">Try: drag the dot up the slope and feel where the ridge is. Then make the interconnect worse — drag <span class="v v-W">W<sub>ici</sub></span> = <span class="t-var" data-var="Wici" data-min="1e10" data-max="2e12" data-scale="log" data-fmt="bw"></span> down — and watch the ridge slide right: a slower network demands a bigger per-chip batch before it can hide. Faster chips (drag <span class="v v-C">C</span> = <span class="t-var" data-var="C" data-min="1e13" data-max="5e15" data-scale="log" data-fmt="flops"></span> up) do the same thing, which is why each hardware generation makes parallelism <em>harder</em>, not easier.</p>
+
+<div class="takeaway"><strong>The one question:</strong> from here on, every section just asks — <em>do this scheme's bytes fit under this scheme's FLOPs?</em> The answer is always a comparison between a per-chip batch (or a model dimension) and the hardware's operational intensity <span class="eq-i"><i class="v v-C">C</i>/<i class="v v-W">W</i></span> = <span class="t-out" data-expr="alpha" data-fmt="int"></span>. When you see a magic constant like <span class="t-out" data-expr="alpha" data-fmt="int"></span> below, it is this ridge, nothing more.</div>
+
+</section>

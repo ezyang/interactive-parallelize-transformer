@@ -1,0 +1,325 @@
+<!-- ============================================================
+     03-fsdp.html — Fully-Sharded Data Parallelism (FSDP)
+     Restored verbatim from source/training.md lines 244–306 (MIT, see
+     page footer / LICENSE-scaling-book.txt). Adaptation voice lives in
+     ✦ margin notes; Δ notes disclose any altered sentences.
+     ============================================================ -->
+<section id="fsdp">
+  <h2>Fully-Sharded Data Parallelism (FSDP)</h2>
+
+  <p><strong>Syntax:</strong></p>
+  <div class="eq">
+    <span class="shape">In[B<sub>X</sub>, D]</span> ·<sub>D</sub>
+    <span class="shape">W<sub>in</sub>[D<sub>X</sub>, F]</span> ·<sub>F</sub>
+    <span class="shape">W<sub>out</sub>[F, D<sub>X</sub>]</span> →
+    <span class="shape">Out[B<sub>X</sub>, D]</span>
+  </div>
+
+  <p>Fully-sharded data parallelism (often called FSDP or
+  <a href="https://arxiv.org/abs/1910.02054">ZeRO-sharding</a>) splits the
+  model optimizer states and weights across the data parallel shards and
+  efficiently gathers and scatters them as needed. <strong>Compared to pure
+  data parallelism, FSDP drastically reduces per-device memory usage and saves
+  on backward pass FLOPs, with very minimal overhead.</strong></p>
+
+  <figure class="breakout">
+    <div class="widget" data-widget="shard-grid" data-opts='{"scheme":"fsdp"}'></div>
+    <figcaption>FSDP shards the contracting dimension of W<sub>in</sub> and the
+    output dimension of W<sub>out</sub> along the data dimension — here
+    <i class="v v-X">X</i> = <span class="t-var" data-var="X" data-min="1" data-max="65536" data-scale="log" data-snap="pow2" data-fmt="int"></span> shards.
+    This reduces memory but (from
+    <a href="https://jax-ml.github.io/scaling-book/sharding/">Section 3</a>)
+    requires us to gather the weights for W before we perform the matmul. Note
+    that the activations (left) <em>are not sharded along the contracting
+    dimension</em>, which is what forces us to gather. <strong>Note that our
+    weight optimizer state is likewise sharded along the contracting
+    dimension.</strong> Hover a chip to see which shards it owns.</figcaption>
+  </figure>
+
+  <p>You'll remember (from
+  <a href="https://jax-ml.github.io/scaling-book/sharding/">Section 3</a>)
+  that an <span class="op op-ar">AllReduce</span> can be decomposed into an
+  <span class="op op-ag">AllGather</span> and a
+  <span class="op op-rs">ReduceScatter</span>. This means that, instead of
+  doing the full gradient AllReduce for standard data parallelism, we can
+  shard the weights and optimizer states across chips,
+  <span class="op op-ag">AllGather</span> them at each layer during the
+  forward pass and <span class="op op-rs">ReduceScatter</span> across the
+  weights during the backward pass at no extra cost.</p>
+
+  <figure class="breakout">
+    <div class="widget" data-widget="collective" data-opts='{"op":"ar-decomp","bytesExpr":"2*D*E*F","axisVar":"MX","label":"AllReduce = ReduceScatter + AllGather"}'></div>
+    <figcaption>The decomposition, animated: the
+    <span class="op op-ar">AllReduce</span> that DP runs on each
+    2<i class="v v-D">D</i><span class="t-show inline" data-expr="E>1"><i class="v">E</i></span><i class="v v-F">F</i> =
+    <span class="t-out" data-expr="2*D*E*F" data-fmt="bytes"></span> gradient is
+    exactly a <span class="op op-rs">ReduceScatter</span> plus an
+    <span class="op op-ag">AllGather</span>. FSDP performs the same two halves —
+    it just schedules them in different passes.</figcaption>
+  </figure>
+
+  <details class="algo">
+    <summary>Here's the full algorithm for FSDP.</summary>
+    <div class="algorithm">
+      <p><strong>Fully-Sharded Data Parallelism (FSDP):</strong></p>
+      <p class="phase"><strong>Forward pass:</strong> need to compute Loss[B<sub>X</sub>]</p>
+      <ol>
+        <li><span class="shape">W<sub>in</sub>[D, F]</span> =
+          <span class="op op-ag">AllGather</span>(<span class="shape">W<sub>in</sub>[D<sub>X</sub>, F]</span>)
+          <span class="cmt">(not on critical path, can do it during previous layer)</span></li>
+        <li><span class="shape">Tmp[B<sub>X</sub>, F]</span> =
+          <span class="shape">In[B<sub>X</sub>, D]</span> ·<sub>D</sub>
+          <span class="shape">W<sub>in</sub>[D, F]</span>
+          <span class="cmt">(can throw away W<sub>in</sub>[D, F] now)</span></li>
+        <li><span class="shape">W<sub>out</sub>[F, D]</span> =
+          <span class="op op-ag">AllGather</span>(<span class="shape">W<sub>out</sub>[F, D<sub>X</sub>]</span>)
+          <span class="cmt">(not on critical path, can do it during previous layer)</span></li>
+        <li><span class="shape">Out[B<sub>X</sub>, D]</span> =
+          <span class="shape">Tmp[B<sub>X</sub>, F]</span> ·<sub>F</sub>
+          <span class="shape">W<sub>out</sub>[F, D]</span></li>
+        <li><span class="shape">Loss[B<sub>X</sub>]</span> = …</li>
+      </ol>
+      <p class="phase"><strong>Backward pass:</strong> need to compute dW<sub>out</sub>[F, D<sub>X</sub>], dW<sub>in</sub>[D<sub>X</sub>, F]</p>
+      <ol>
+        <li><span class="shape">dOut[B<sub>X</sub>, D]</span> = …</li>
+        <li><span class="shape">dW<sub>out</sub>[F, D] {U<sub>X</sub>}</span> =
+          <span class="shape">Tmp[B<sub>X</sub>, F]</span> ·<sub>B</sub>
+          <span class="shape">dOut[B<sub>X</sub>, D]</span></li>
+        <li><span class="shape">dW<sub>out</sub>[F, D<sub>X</sub>]</span> =
+          <span class="op op-rs">ReduceScatter</span>(<span class="shape">dW<sub>out</sub>[F, D] {U<sub>X</sub>}</span>)
+          <span class="cmt">(not on critical path, can be done async)</span></li>
+        <li><span class="shape">W<sub>out</sub>[F, D]</span> =
+          <span class="op op-ag">AllGather</span>(<span class="shape">W<sub>out</sub>[F, D<sub>X</sub>]</span>)
+          <span class="cmt">(can be done ahead of time)</span></li>
+        <li><span class="shape">dTmp[B<sub>X</sub>, F]</span> =
+          <span class="shape">dOut[B<sub>X</sub>, D]</span> ·<sub>D</sub>
+          <span class="shape">W<sub>out</sub>[F, D]</span>
+          <span class="cmt">(can throw away W<sub>out</sub>[F, D] here)</span></li>
+        <li><span class="shape">dW<sub>in</sub>[D, F] {U<sub>X</sub>}</span> =
+          <span class="shape">In[B<sub>X</sub>, D]</span> ·<sub>B</sub>
+          <span class="shape">dTmp[B<sub>X</sub>, F]</span></li>
+        <li><span class="shape">dW<sub>in</sub>[D<sub>X</sub>, F]</span> =
+          <span class="op op-rs">ReduceScatter</span>(<span class="shape">dW<sub>in</sub>[D, F] {U<sub>X</sub>}</span>)
+          <span class="cmt">(not on critical path, can be done async)</span></li>
+        <li><span class="shape">W<sub>in</sub>[D, F]</span> =
+          <span class="op op-ag">AllGather</span>(<span class="shape">W<sub>in</sub>[D<sub>X</sub>, F]</span>)
+          <span class="cmt">(can be done ahead of time)</span></li>
+        <li><span class="shape">dIn[B<sub>X</sub>, D]</span> =
+          <span class="shape">dTmp[B<sub>X</sub>, F]</span> ·<sub>F</sub>
+          <span class="shape">W<sub>in</sub>[D, F]</span>
+          <span class="cmt">(needed for previous layers) (can throw away W<sub>in</sub>[D, F] here)</span></li>
+      </ol>
+    </div>
+  </details>
+
+  <p>This is also called "ZeRO Sharding", from "Zero Redundancy Optimizer"
+  since we don't perform any unnecessary compute or store any unnecessary
+  state. ZeRO-{1,2,3} are used to refer to sharding the optimizer states,
+  gradients, and weights in this way, respectively. Since all have the same
+  communication cost<span class="sn"><button class="sn-ref" aria-label="sidenote">◦</button><span class="sn-body">Technically,
+  FSDP adds communication in the forward pass that pure DP doesn't have, but
+  this is in the same proportion as the backward pass so it should have no
+  effect on the comms roofline. The key here is that ZeRO-3 turns a
+  backward-pass AllReduce into an AllGather and a ReduceScatter, which have
+  the same total comms volume.</span></span>, we can basically always do
+  ZeRO-3 sharding, which shards the parameters, gradients, and optimizer
+  states across a set of devices.</p>
+
+  <p><strong>Why would we do this?</strong> Standard data parallelism involves
+  a lot of duplicated work. Each TPU <span class="op op-ar">AllReduce</span>s
+  the full gradient, then updates the full optimizer state (identical work on
+  all TPUs), then updates the parameters (again, fully duplicated). For ZeRO
+  sharding (sharding the gradients/optimizer state), instead of an AllReduce,
+  you can <span class="op op-rs">ReduceScatter</span> the gradients, update
+  only your shard of the optimizer state, update a shard of the parameters,
+  then <span class="op op-ag">AllGather</span> the parameters as needed for
+  your forward pass.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Try:
+  in the memory meter below, drag <i class="v v-X">X</i> =
+  <span class="t-var" data-var="X" data-min="1" data-max="65536" data-scale="log" data-snap="pow2" data-fmt="int"></span>
+  down toward 1 and watch the meter fill up and overflow — at
+  <i class="v v-X">X</i> = 1 you're just pure DP on one chip's memory budget.
+  Every doubling of <i class="v v-X">X</i> halves the parameter and optimizer
+  stripes.</span></span></p>
+
+  <figure class="breakout">
+    <div class="widget" data-widget="mem-meter" data-opts='{"scheme":"fsdp"}'></div>
+    <figcaption>Per-chip HBM under FSDP: parameters
+    (2<i class="v">P</i>/<i class="v v-X">X</i> =
+    <span class="t-out" data-expr="2*P/X" data-fmt="bytes"></span>) and Adam
+    optimizer state (8<i class="v">P</i>/<i class="v v-X">X</i> =
+    <span class="t-out" data-expr="8*P/X" data-fmt="bytes"></span>) are now
+    divided by <i class="v v-X">X</i>. Compare the pure-DP memory meter in the
+    previous section: there the same two stripes sat at their full, unsharded
+    size on every chip — 10 bytes per parameter, capping pure DP at about
+    <span class="t-out" data-expr="HBM/10" data-fmt="si"></span> parameters per
+    <span class="t-out" data-expr="HBM" data-fmt="bytes"></span> chip no matter
+    how many chips you buy.</figcaption>
+  </figure>
+
+  <p><strong>When do we become bottlenecked by communication?</strong> Our
+  relative FLOPs and comms costs are exactly the same as pure data
+  parallelism, since each <span class="op op-ar">AllReduce</span> in the
+  backward pass has become an <span class="op op-ag">AllGather</span> +
+  <span class="op op-rs">ReduceScatter</span>. Recall that an AllReduce is
+  implemented as an AllGather and a ReduceScatter, each with half the cost.
+  Here we model the forward pass since it has the same FLOPs-to-comms ratio as
+  the backward pass:<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> The
+  chapter writes these equations for one mesh axis. The live line beneath them
+  (and every meter on this page) spreads the collective over
+  <i class="v v-M">M<sub>X</sub></i> =
+  <span class="t-var" data-var="MX" data-min="1" data-max="3" data-scale="lin" data-snap="int" data-fmt="int"></span>
+  mesh axes — the M<sub>X</sub> the chapter's takeaway below refers to — so
+  T<sub>comms</sub> is divided by M<sub>X</sub>.</span></span></p>
+
+  <div class="eq">
+    T<sub>math</sub> =
+    <span class="frac"><span>2 · 2 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span><i class="v v-X">X</i> · <i class="v v-C">C</i></span></span>
+    &nbsp;&nbsp;&nbsp;
+    T<sub>comms</sub> =
+    <span class="frac"><span>2 · 2 · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span><i class="v v-W">W<sub>ici</sub></i></span></span>
+  </div>
+  <div class="eq">
+    T ≈ max<span class="eq-i">(
+    <span class="frac"><span>4 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span><i class="v v-X">X</i> · <i class="v v-C">C</i></span></span>,
+    <span class="frac"><span>4 · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span><i class="v v-W">W<sub>ici</sub></i></span></span>
+    )</span>
+    = 4 · <i class="v v-D">D</i> · <i class="v v-F">F</i> · max<span class="eq-i">(
+    <span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-X">X</i> · <i class="v v-C">C</i></span></span>,
+    <span class="frac"><span>1</span><span><i class="v v-W">W<sub>ici</sub></i></span></span>
+    )</span>
+  </div>
+  <div class="eq-live">right now, per layer, over M<sub>X</sub> =
+    <span class="t-out" data-expr="MX" data-fmt="int"></span> mesh axes<span class="t-show inline" data-expr="E>1"> (MoE: FLOPs carry k·F, weight comms E·F)</span>:
+    T<sub>math</sub> = <span class="t-out" data-expr="4*B*D*k*F/(X*C)" data-fmt="time"></span> vs
+    T<sub>comms</sub> = <span class="t-out" data-expr="4*D*E*F/(Wici*MX)" data-fmt="time"></span> →
+    <span class="t-if" data-expr="B/X > (E/k)*alpha/MX" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
+  </div>
+
+  <p>Therefore, as with pure data-parallelism, we are compute bound when
+  <span class="eq-i"><i class="v v-B">B</i> / <i class="v v-X">X</i> &gt;
+  <i class="v v-C">C</i> / <i class="v v-W">W<sub>ici</sub></i></span>, i.e.
+  when the per-device batch size <i class="v v-B">B</i>/<i class="v v-X">X</i>
+  exceeds the "ICI operational intensity"
+  <i class="v v-C">C</i>/<i class="v v-W">W<sub>ici</sub></i>
+  (<span class="t-out" data-expr="C" data-fmt="e"></span> /
+  <span class="t-out" data-expr="Wici" data-fmt="e"></span> =
+  <span class="t-out" data-expr="alpha" data-fmt="int"></span> for v5p). This
+  is great for us, because it means if our per-device batch size is big enough
+  to be compute-bound for pure data-parallelism, we can — without worrying
+  about leaving the compute-bound regime — simply upgrade to FSDP, saving
+  ourselves a massive amount of parameter and optimizer state memory! Though
+  we did have to add communication to the forward pass, this cost is
+  immaterial since it just overlaps with forward-pass
+  FLOPs.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> In
+  the language of <a href="#roofline">the roofline primer</a>: compared to
+  DP's backward pass, FSDP's forward pass has half the traffic on the network
+  clock <em>and</em> half the FLOPs on the compute clock, so both bars shrink
+  together and the ridge doesn't move. The comms fit under the compute exactly
+  when the per-chip batch <i class="v v-B">B</i>/<i class="v v-X">X</i> =
+  <span class="t-out" data-expr="B/X" data-fmt="int"></span> clears the ridge
+  at <span class="t-out" data-expr="(E/k)*alpha/MX" data-fmt="int"></span> tokens
+  (α = <span class="t-out" data-expr="alpha" data-fmt="int"></span> per mesh
+  axis, over M<sub>X</sub> axes, ×E/k with a MoE loaded).</span></span></p>
+
+  <figure class="breakout">
+    <div class="widget" data-widget="bound-meter" data-opts='{"scheme":"fsdp"}'></div>
+    <figcaption>The two clocks for one FSDP layer. Same verdict as the DP
+    meter in the previous section, with both bars half as long — the ratio,
+    and therefore the ridge, is untouched.</figcaption>
+  </figure>
+
+  <div class="takeaway"><strong>Takeaway:</strong> Both FSDP and pure Data
+  Parallelism become bandwidth bound on TPUv5 when the batch size per device
+  is less than <span class="t-out" data-expr="alpha" data-fmt="int"></span> /
+  <i class="v v-M">M<sub>X</sub></i>, where <i class="v v-M">M<sub>X</sub></i>
+  is the number of mesh axes.</div>
+
+  <p>For example, DeepSeek-V2 (one of the only recent strong models to release
+  information about its training batch size) used a batch size of ~40M tokens.
+  <strong>This would allow us to scale to roughly
+  <span class="t-out" data-expr="4e7*3/alpha" data-fmt="chips"></span> chips,
+  or around
+  <span class="t-out" data-expr="4e7*3/alpha/8960" data-fmt="int"></span>
+  TPUv5 pods, before we hit a bandwidth
+  limit.</strong><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Load
+  the DeepSeek scenario with the button below, then make the batch your own:
+  the mini-calculator that follows is an addition of this edition. With
+  <i class="v v-B">B</i> =
+  <span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span>
+  tokens, FSDP scales to X<sub>max</sub> chips before hitting the bandwidth
+  limit.</span></span></p>
+
+  <div class="eq">
+    X<sub>max</sub> =
+    <span class="frac"><span><i class="v v-B">B</i> · <i class="v v-M">M<sub>X</sub></i><span class="t-show inline" data-expr="E>1"> · <i class="v">k</i></span></span><span>α<span class="t-show inline" data-expr="E>1"> · <i class="v">E</i></span></span></span>
+    = <span class="t-out" data-expr="B*MX*k/(alpha*E)" data-fmt="chips"></span> chips
+    <span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> This
+    equation is not in the chapter — it just solves the chapter's bound
+    B/X &gt; α/M<sub>X</sub> (with a MoE loaded, the exact form
+    B/X &gt; (E/k)·α/M<sub>X</sub>) for X, so you can scrub
+    <i class="v v-B">B</i> and read off the largest compute-bound chip
+    count.</span></span>
+  </div>
+
+  <div class="preset-row"><span class="preset-label">Try:</span>
+    <button class="t-preset" data-set='{"B":4e7,"MX":3}'>DeepSeek-V2: B = 40M, all 3 axes</button>
+    <button class="t-preset" data-set='{"B":2e6,"MX":2}'>back to page defaults</button>
+  </div>
+
+  <p>For LLaMA-3 70B, which was trained for approximately
+  <span class="t-out" data-expr="15e12*70e9*6" data-fmt="e"></span>
+  (15e12 · 70e9 · 6) FLOPs, we could split a batch of
+  <span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span>
+  tokens over roughly <i class="v v-B">B</i> / (α / 3) =
+  <span class="t-out" data-expr="B/(alpha/3)" data-fmt="chips"></span> chips
+  (roughly
+  <span class="t-out" data-expr="(B/(alpha/3))/8960" data-fmt="int"></span>
+  pods of 8960 chips), each with
+  <span class="t-out" data-expr="C" data-fmt="e"></span> FLOPs running at
+  <span class="t-var" data-var="MFU" data-min="0.05" data-max="1" data-scale="lin" data-step="0.05" data-fmt="pct"></span>
+  peak FLOPs utilization (often called MFU), and <strong>train it in
+  approximately
+  <span class="t-out" data-expr="15e12*70e9*6/((B/(alpha/3))*C*MFU)" data-fmt="days"></span></strong>.
+  Not bad! But let's explore how we can do
+  better.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> The
+  chapter's numbers (16M tokens, 18,823 chips, 17 days) are one point of this
+  live sentence — the recipe button below restores them. Then drag
+  <i class="v v-B">B</i> and watch chips and wall-clock trade off: a bigger
+  batch rides the same ridge on more chips and finishes sooner, which is
+  exactly why the labs fight for every doubling of critical batch size. The
+  equation below, also an addition, shows the wall-clock
+  arithmetic.</span></span></p>
+
+  <div class="eq-live">
+    <span class="frac"><span>total FLOPs</span><span>chips · <i class="v v-C">C</i> · MFU</span></span>
+    = <span class="t-out" data-expr="15e12*70e9*6/((B/(alpha/3))*C*MFU)" data-fmt="days"></span>
+    <span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Added
+    by this edition: the chapter's 17-day estimate, kept live — total FLOPs
+    divided by the aggregate delivered FLOP-rate of the
+    <span class="t-out" data-expr="B/(alpha/3)" data-fmt="chips"></span> chips
+    at the chosen MFU.</span></span>
+  </div>
+
+  <div class="preset-row"><span class="preset-label">Try:</span>
+    <button class="t-preset" data-set='{"B":16000000,"MX":3,"MFU":0.5}'>chapter's LLaMA-3 recipe: B = 16M, 3 axes, MFU 50%</button>
+  </div>
+
+  <div class="note"><strong>Note on critical batch size</strong>: somewhat
+  unintuitively, we become more communication bottlenecked as our total batch
+  size decreases (with fixed chip
+  number).<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> See
+  for yourself: drag <i class="v v-B">B</i> =
+  <span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span>
+  down and watch the verdict above flip to
+  <span class="t-if" data-expr="B/X > (E/k)*alpha/MX" data-then="…well, it hasn't yet" data-else="communication-bound"></span>.
+  The hunt described at the end of this note is where the rest of this chapter
+  goes.</span></span> Data parallelism and FSDP let us scale to arbitrarily
+  many chips so long as we can keep increasing our batch size! However, in
+  practice, as our batch size increases, we tend to see diminishing returns in
+  training since our gradients become almost noise-free. We also sometimes see
+  training instability. Thus, the game of finding an optimal sharding scheme
+  in the "unlimited compute regime" often starts from a fixed batch size,
+  determined by scaling laws, and a known (large) number of chips, and then
+  aims to find a partitioning that allows us to fit that small batch size on
+  so many chips.</div>
+</section>
