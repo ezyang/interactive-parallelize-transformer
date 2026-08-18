@@ -144,10 +144,10 @@
   <figure class="breakout">
     <div class="widget" data-widget="mem-meter" data-opts='{"scheme":"fsdp"}'></div>
     <figcaption>Per-chip HBM under FSDP: parameters
-    (2<i class="v">P</i>/<i class="v v-DP">DP</i> =
-    <span class="t-out" data-expr="2*P/DP" data-fmt="bytes"></span>) and Adam
-    optimizer state (8<i class="v">P</i>/<i class="v v-DP">DP</i> =
-    <span class="t-out" data-expr="8*P/DP" data-fmt="bytes"></span>) are now
+    (2·<span data-tip="P_w ≈ 3·D·E·F·L + 2.5·D²·L — the ≈-real checkpoint weight count the memory meters use (gated 3-matrix MLPs + a GQA attention estimate), not the 2-matmul comms model's P.">P<sub>w</sub></span>/<i class="v v-DP">DP</i> =
+    <span class="t-out" data-expr="2*Preal/DP" data-fmt="bytes"></span>) and Adam
+    optimizer state (8·P<sub>w</sub>/<i class="v v-DP">DP</i> =
+    <span class="t-out" data-expr="8*Preal/DP" data-fmt="bytes"></span>) are now
     divided by <i class="v v-DP">DP</i>. Compare the pure-DP memory meter in the
     previous section: there the same two stripes sat at their full, unsharded
     size on every chip — 10 bytes per parameter, capping pure DP at about

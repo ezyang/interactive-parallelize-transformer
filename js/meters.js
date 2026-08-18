@@ -243,7 +243,7 @@
 
     const title = div("w-title", "Does it fit? Per-chip HBM under " + scheme.label);
     const legend = div("legend");
-    for (const [name, color] of [["params (2P bytes)", COLORS.params], ["optimizer state (8P bytes)", COLORS.optimizer], ["activations (2·L·B·(D+2·k·F) bytes)", COLORS.activations]]) {
+    for (const [name, color] of [["params (2 B/param)", COLORS.params], ["optimizer state (8 B/param, Adam fp32 m+v)", COLORS.optimizer], ["activations (2·L·B·(D+2·k·F) bytes)", COLORS.activations]]) {
       const lg = div("lg");
       const sw = document.createElement("span");
       sw.className = "key-rect";
@@ -266,15 +266,22 @@
     el.appendChild(readout);
 
     function render(S) {
-      // P = 2·D·E·F·L (weights hold all E experts); activations touch only the k activated
-      const P = 2 * S.D * S.E * S.F * S.L;
+      // Memory questions need REAL checkpoint weights, not the page's
+      // 2-matmul comms proxy P: modern MLPs are gated (3 matrices = 1.5×)
+      // and attention adds ≈2.5·D²·L (GQA-era estimate; vocab embeddings
+      // not modeled). This lands within ~5% of the model table's published
+      // totals for the MoE presets. Activations touch only the k activated
+      // experts, and the 3 checkpoint slabs per layer (F, F, D wide) are the
+      // same for gated and plain MLPs.
+      const Pw = 3 * S.D * S.E * S.F * S.L + 2.5 * S.D * S.D * S.L;
       const dP = scheme.divP(S), dA = scheme.divA(S);
       const actBytes = 2 * S.L * S.B * (S.D + 2 * S.k * S.F);
       const segs = [
-        { key: "params", bytes: (2 * P) / dP, color: COLORS.params,
-          tip: "params = 2·P ÷ " + Core.fmt(dP, "int") + " (" + scheme.noteP() + ") = " + Core.fmt((2 * P) / dP, "bytes") },
-        { key: "optimizer", bytes: (8 * P) / dP, color: COLORS.optimizer,
-          tip: "optimizer (Adam, fp32 m+v) = 8·P ÷ " + Core.fmt(dP, "int") + " (" + scheme.noteP() + ") = " + Core.fmt((8 * P) / dP, "bytes") },
+        { key: "params", bytes: (2 * Pw) / dP, color: COLORS.params,
+          tip: "params ≈ 2 bytes × P_weights ÷ " + Core.fmt(dP, "int") + " (" + scheme.noteP() + ") = " + Core.fmt((2 * Pw) / dP, "bytes") +
+            ". P_weights ≈ 3·D·E·F·L + 2.5·D²·L = " + Core.fmt(Pw, "si") + " — real gated MLPs + a GQA attention estimate, not the 2-matmul comms model's P = " + Core.fmt(2 * S.D * S.E * S.F * S.L, "si") },
+        { key: "optimizer", bytes: (8 * Pw) / dP, color: COLORS.optimizer,
+          tip: "optimizer (Adam, fp32 m+v) = 8 bytes × P_weights ÷ " + Core.fmt(dP, "int") + " (" + scheme.noteP() + ") = " + Core.fmt((8 * Pw) / dP, "bytes") },
         { key: "activations", bytes: actBytes / dA, color: COLORS.activations,
           tip: "checkpointed activations = 2·L·B·(D+2·k·F) ÷ " + Core.fmt(dA, "int") + " (" + scheme.noteA() + ") = " + Core.fmt(actBytes / dA, "bytes") },
       ];

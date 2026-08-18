@@ -106,7 +106,7 @@
   const MATH_KEYS = ["sqrt", "min", "max", "pow", "ceil", "floor", "round", "abs", "exp", "PI"];
   const SPEC_KEYS = ["Cspec", "WiciSpec", "WdcnSpec"];
   const DERIVED_KEYS = ["N", "alpha", "alphaDcn", "Wdp", "Wtp", "alphaDP", "alphaTP",
-    "mixF", "mixTP", "mixMath", "mixComms", "Er", "kr", "P", "log2", "log10"];
+    "mixF", "mixTP", "mixMath", "mixComms", "Er", "kr", "P", "Preal", "log2", "log10"];
   const EXPR_ARGS = KEYS.concat(DERIVED_KEYS).concat(SPEC_KEYS).concat(MATH_KEYS);
 
   function derivedVals() {
@@ -129,6 +129,12 @@
       kr: Math.max(0, state.k - state.Sexp),
       // F is per-expert width (chapter-12 convention): weights scale with E·F
       P: 2 * state.D * state.E * state.F * state.L,
+      // ≈ real checkpoint weights, for MEMORY questions: modern MLPs are
+      // gated (3 matrices, not this page's 2-matmul comms model) and
+      // attention adds ~2.5·D²·L (GQA-era estimate; vocab embeddings not
+      // modeled). Lands within ~5% of published totals for the MoE presets,
+      // ~15% low for small dense models with big vocabularies.
+      Preal: 3 * state.D * state.E * state.F * state.L + 2.5 * state.D * state.D * state.L,
       log2: Math.log2, log10: Math.log10,
     };
   }
@@ -463,7 +469,8 @@
     mixComms: { expr: "max(mixF,mixTP)", name: "mixed communication clock" },
     Er: { expr: "max(E-Sexp,0)", name: "routed experts (shared experts excluded)" },
     kr: { expr: "max(k-Sexp,0)", name: "routed expert selections per token" },
-    P: { expr: "2*D*E*F*L", name: "MLP-stack parameter count" },
+    P: { expr: "2*D*E*F*L", name: "MLP-stack parameter count (the page's 2-matmul comms model)" },
+    Preal: { expr: "3*D*E*F*L + 2.5*D*D*L", name: "≈ real checkpoint weights: gated 3-matrix MLPs + a GQA attention estimate (vocab embeddings not modeled)" },
   };
 
   // a scrubbable variable token inside the tooltip (usable once pinned)

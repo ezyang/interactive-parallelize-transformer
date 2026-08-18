@@ -247,8 +247,13 @@ With this simplification each layer holds
 dense model, so simply 2·D·F), and the whole stack has
 2·<i class="v v-D">D</i>·E·<i class="v v-F">F</i>·<i class="v v-L">L</i> =
 <span class="t-out" data-expr="P" data-fmt="si"></span> parameters at the current
-settings — the &ldquo;P&rdquo; that later memory arithmetic on this page
-uses.</span></span></p>
+settings — the &ldquo;P&rdquo; in this page's communication arithmetic. Memory
+questions are different: a real checkpoint holds the gated MLP's third matrix
+and the attention stack too, so the memory meters price weights at
+P<sub>w</sub> ≈ 3·D·E·F·L + 2.5·D²·L =
+<span class="t-out" data-expr="Preal" data-fmt="si"></span>, which tracks the
+model table's published totals to within a few percent (vocab embeddings and
+MHA-era attention excepted).</span></span></p>
 
 <figure class="breakout">
   <div class="widget" data-widget="layer-diagram" data-opts='{}'></div>
