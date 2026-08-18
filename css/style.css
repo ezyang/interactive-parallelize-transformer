@@ -307,6 +307,7 @@ button.t-preset.active { border-color: var(--scrub); color: var(--scrub); }
 .v-PP { color: var(--dim-PP); }
 .v-EP { color: var(--dim-EP); }
 .v-T { color: var(--dim-T); }
+.v-P { color: var(--dim-N); }
 .v-M { color: var(--dim-M); }
 .v-E { color: var(--dim-E); }
 .v-k { color: var(--dim-k); }
@@ -320,7 +321,7 @@ tr:not(.live-row) td[data-live-expr] .cell-live { display: none; }
 /* dim hover cross-highlight: core toggles .hl-<dim> on <html> */
 .hl-B .v-B, .hl-D .v-D, .hl-F .v-F, .hl-L .v-L, .hl-DP .v-DP,
 .hl-TP .v-TP, .hl-N .v-N, .hl-C .v-C, .hl-W .v-W, .hl-PP .v-PP, .hl-M .v-M,
-.hl-E .v-E, .hl-k .v-k, .hl-EP .v-EP, .hl-T .v-T {
+.hl-E .v-E, .hl-k .v-k, .hl-EP .v-EP, .hl-T .v-T, .hl-P .v-P {
   background: rgba(237, 161, 0, 0.28);
 }
 

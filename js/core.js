@@ -374,8 +374,8 @@
   // derived names drill down to their own definitions inside a pinned tip
   const DERIVED_DEFS = {
     N: { expr: "DP*TP", name: "total chips" },
-    alpha: { expr: "C/Wici", name: "ICI arithmetic intensity — the ridge" },
-    alphaDcn: { expr: "C/Wdcn", name: "DCN arithmetic intensity" },
+    alpha: { expr: "C/Wici", name: "fast-interconnect (ICI / NVLink) arithmetic intensity — the ridge" },
+    alphaDcn: { expr: "C/Wdcn", name: "cross-pod (DCN / InfiniBand) arithmetic intensity" },
     P: { expr: "2*D*E*F*L", name: "MLP-stack parameter count" },
   };
 
@@ -743,14 +743,15 @@
         "F = " + fmt(state.F, "int") + (state.k > 1 ? "   k·F = " + fmt(state.k * state.F, "int") + "   E·F = " + fmt(state.E * state.F, "si") : "")];
       case "L": return ["number of layers in the model", "L = " + fmt(state.L, "int")];
       case "T": return ["sequence length (the page doesn't track it — batch B is already in tokens)", "T — static"];
+      case "P": return ["MLP-stack parameter count, P = 2·D·E·F·L", "P = " + fmt(2 * state.D * state.E * state.F * state.L, "si")];
       case "DP": return ["chips on the data/FSDP-parallel mesh axis (the chapter's X)", "DP = " + fmt(state.DP, "int")];
       case "TP": return ["chips on the tensor-parallel mesh axis (the chapter's Y)", "TP = " + fmt(state.TP, "int")];
       case "N": return ["total chips in the slice, N = DP·TP", "N = " + fmt(state.DP * state.TP, "int")];
       case "C": return [state.meas ? "matmul FLOPs/s of one chip — MEASURED mode: sustained = spec × " + fmt(state.effC, "sig3") : "peak matmul FLOPs/s of one chip",
         "C = " + fmt(effOf("C"), "flops") + (state.meas ? "  (spec " + fmt(state.C, "flops") + ")" : "")];
       case "W":
-        if (/dcn/i.test(txt)) return ["cross-pod (DCN / InfiniBand) bandwidth per chip" + (state.meas ? " — measured" : ""), "W_dcn = " + fmt(effOf("Wdcn"), "bw") + (state.meas ? "  (spec " + fmt(state.Wdcn, "bw") + ")" : "")];
-        if (/ici/i.test(txt)) return ["in-pod interconnect bandwidth per axis (ICI; NVLink egress under GPU presets)" + (state.meas ? " — measured" : ""), "W_ici = " + fmt(effOf("Wici"), "bw") + (state.meas ? "  (spec " + fmt(state.Wici, "bw") + ")" : "")];
+        if (/dcn|ib/i.test(txt)) return ["cross-pod (DCN / InfiniBand) bandwidth per chip" + (state.meas ? " — measured" : ""), "W_dcn = " + fmt(effOf("Wdcn"), "bw") + (state.meas ? "  (spec " + fmt(state.Wdcn, "bw") + ")" : "")];
+        if (/ici|gpu/i.test(txt)) return ["in-pod interconnect bandwidth per axis (ICI; NVLink egress under GPU presets)" + (state.meas ? " — measured" : ""), "W_ici = " + fmt(effOf("Wici"), "bw") + (state.meas ? "  (spec " + fmt(state.Wici, "bw") + ")" : "")];
         return ["network bandwidth — W_ici in-pod, W_dcn between pods", "W_ici = " + fmt(effOf("Wici"), "bw") + "   W_dcn = " + fmt(effOf("Wdcn"), "bw")];
       case "PP": return ["pipeline stages (the pipelining section's Z)", "PP = " + fmt(state.PP, "int")];
       case "EP": return ["expert-parallel degree (chapter 12's Z)", "EP = " + fmt(state.EP, "int")];
@@ -795,6 +796,15 @@
       const g = el.dataset.g != null ? el.dataset.g : (TERM_G[t.trim()] || t);
       toks.push({ el, t, g });
     });
+    // the variable subscripts follow the hardware too: W_ici → W_gpu,
+    // W_dcn → W_ib (chapter 12's names). Δ-note quotes (.orig) and
+    // widget-generated content are exempt.
+    root.querySelectorAll("sub").forEach((sub) => {
+      const t = sub.textContent.trim();
+      if ((t === "ici" || t === "dcn") && !sub.closest("[data-widget]") && !sub.closest(".orig") && !sub.closest(".tm")) {
+        toks.push({ el: sub, t, g: t === "ici" ? "gpu" : "ib" });
+      }
+    });
     if (!toks.length) return;
     let cur = null;
     const render = () => {
@@ -808,39 +818,53 @@
     render();
   }
 
-  // ---------- shape tokenizer ----------
-  // Inside <span class="shape">…</span> einsum notation, wrap bare dimension
-  // letters and axis subscripts as .v tokens so they get the same colors and
-  // hover meanings as everywhere else. Runs before initDimTokens.
-  function initShapeTokens(root) {
-    const LETTER_RE = /\b([BDFLTEk])\b/;
-    root.querySelectorAll(".shape").forEach((sh) => {
-      sh.querySelectorAll("sub").forEach((sub) => {
-        const t = sub.textContent.trim();
-        if (/^(B|D|F|L|T|DP|TP|EP|PP)$/.test(t) && !sub.closest(".v")) {
-          sub.classList.add("v", "v-" + t);
-        }
-      });
-      const walker = document.createTreeWalker(sh, NodeFilter.SHOW_TEXT, {
-        acceptNode: (n) => (n.parentElement && n.parentElement.closest(".v"))
-          ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
-      });
-      const nodes = [];
-      while (walker.nextNode()) nodes.push(walker.currentNode);
-      for (const n of nodes) {
-        const parts = n.textContent.split(new RegExp(LETTER_RE.source, "g"));
-        if (parts.length < 2) continue;
-        const frag = document.createDocumentFragment();
-        parts.forEach((p, i) => {
-          if (i % 2) {
-            const el = document.createElement("i");
-            el.className = "v v-" + p;
-            el.textContent = p;
-            frag.appendChild(el);
-          } else if (p) frag.appendChild(document.createTextNode(p));
-        });
-        n.parentNode.replaceChild(frag, n);
+  // ---------- math tokenizer ----------
+  // Wrap bare dimension letters and axis subscripts as .v tokens so they get
+  // the same colors and hover meanings everywhere math is typeset: .shape
+  // einsums (letter set incl. T = sequence) and .eq/.eq-i equations (no T —
+  // there it's T_math/T_comms, a time). Also upgrades hand-written plain
+  // <i class="v">k</i> tokens to their colored, hoverable classes.
+  // Runs before initDimTokens.
+  function tokenizeMathIn(container, letterRe) {
+    container.querySelectorAll("sub").forEach((sub) => {
+      const t = sub.textContent.trim();
+      if (/^(B|D|F|L|T|DP|TP|EP|PP)$/.test(t) && !sub.closest(".v") && !sub.closest("[data-widget]")) {
+        sub.classList.add("v", "v-" + t);
       }
+    });
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) => (n.parentElement && (n.parentElement.closest(".v") || n.parentElement.closest("[data-widget]")))
+        ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+    });
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    for (const n of nodes) {
+      const parts = n.textContent.split(letterRe);
+      if (parts.length < 2) continue;
+      const frag = document.createDocumentFragment();
+      parts.forEach((p, i) => {
+        if (i % 2) {
+          const el = document.createElement("i");
+          el.className = "v v-" + p;
+          el.textContent = p;
+          frag.appendChild(el);
+        } else if (p) frag.appendChild(document.createTextNode(p));
+      });
+      n.parentNode.replaceChild(frag, n);
+    }
+  }
+  function initShapeTokens(root) {
+    // hand-written un-classed tokens: <i class="v">k</i> → v-k (etc.);
+    // the third-mesh-axis Z stays deliberately plain
+    root.querySelectorAll(".v").forEach((el) => {
+      if (Array.from(el.classList).some((c) => /^v-/.test(c))) return;
+      const t = el.textContent.trim();
+      if (/^(B|D|F|L|E|k|N|C|W|M|P)$/.test(t)) el.classList.add("v-" + t);
+    });
+    root.querySelectorAll(".shape").forEach((sh) => tokenizeMathIn(sh, /\b([BDFLTEk])\b/g));
+    root.querySelectorAll(".eq, .eq-i").forEach((eq) => {
+      if (eq.closest(".shape")) return;
+      tokenizeMathIn(eq, /\b([BDFLEkN])\b/g);
     });
   }
 

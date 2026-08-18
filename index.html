@@ -40,7 +40,7 @@
       <option value="custom">custom…</option>
     </select>
     <span class="v v-C">C</span>=<span class="t-var" data-var="C" data-min="1e13" data-max="5e15" data-scale="log" data-fmt="flops"></span>
-    <span class="v v-W">W<span class="t-show inline" data-expr="1-gpu"><sub>ici</sub></span><span class="t-show inline" data-expr="gpu"><sub>gpu</sub></span></span>=<span class="t-var" data-var="Wici" data-min="1e10" data-max="2e12" data-scale="log" data-fmt="bw"></span>
+    <span class="v v-W">W<sub>ici</sub></span>=<span class="t-var" data-var="Wici" data-min="1e10" data-max="2e12" data-scale="log" data-fmt="bw"></span>
     <span class="seg" role="group" aria-label="spec or measured numbers" data-tip="Spec: vendor peak numbers. Measured: sustained compute and achieved bandwidth (spec × the cited efficiency factors — see the hardware table by the notation section; scrub the factors in its live row). Hover C or W for the effective values. TPUs sustain closer to peak than power-throttled NVIDIA GPUs.">
       <button class="seg-opt" data-meas="0">spec</button><button class="seg-opt" data-meas="1">measured</button>
     </span>
@@ -170,7 +170,7 @@ section.</p>
     <tr><td><i class="v v-C">C</i></td><td>FLOPS/s per chip</td>
       <td><span class="t-out" data-expr="C" data-fmt="flops"></span></td></tr>
     <tr><td><i class="v v-W">W</i></td><td>Network bandwidth (bidirectional, often subscripted as e.g. <i class="v v-W">W<sub>ici</sub></i> or <i class="v v-W">W<sub>dcn</sub></i>)</td>
-      <td><span class="t-out" data-expr="Wici" data-fmt="bw"></span> ici · <span class="t-out" data-expr="Wdcn" data-fmt="bw"></span> dcn</td></tr>
+      <td><span class="t-out" data-expr="Wici" data-fmt="bw"></span> <span class="tm" data-g="gpu">ici</span> · <span class="t-out" data-expr="Wdcn" data-fmt="bw"></span> <span class="tm" data-g="ib">dcn</span></td></tr>
     <tr><td><i class="v v-DP">DP</i></td><td>Number of chips along the data-parallel mesh axis <span class="add">(the chapter's X)</span></td>
       <td><span class="t-out" data-expr="DP" data-fmt="int"></span></td></tr>
     <tr><td><i class="v v-TP">TP</i></td><td>Number of chips along an alternate, tensor-parallel mesh axis <span class="add">(the chapter's Y)</span></td>
@@ -523,6 +523,14 @@ Crucially, the hardware lets these two clocks <em>overlap</em>: the network can 
 <section id="data-parallelism">
 <h2>Data Parallelism</h2>
 
+<div class="try"><i class="v v-DP">DP</i> =
+<span class="t-var" data-var="DP" data-min="1" data-max="65536" data-scale="log" data-snap="pow2" data-fmt="int"></span>
+chips share the batch of <i class="v v-B">B</i> =
+<span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span>
+tokens, so each model copy sees
+<span class="t-out" data-expr="B/DP" data-fmt="int"></span> — drag either and
+everything below follows.</div>
+
 <p><strong>Syntax:</strong></p>
 
 <div class="eq">
@@ -539,15 +547,7 @@ number of <span class="tm">TPUs</span> so long as the number of <span class="tm"
 The forward pass involves no communication, but at the end of every step,
 <strong>each <span class="tm">TPU</span> performs an <span class="op op-ar">AllReduce</span> on its
 local gradients to synchronize them before updating the
-parameters.</strong><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
-Everything on this page is live. The batch is currently
-<i class="v v-B">B</i> =
-<span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span>,
-split over <i class="v v-DP">DP</i> =
-<span class="t-var" data-var="DP" data-min="1" data-max="65536" data-scale="log" data-snap="pow2" data-fmt="int"></span>
-chips, so each copy of the model sees
-<span class="t-out" data-expr="B/DP" data-fmt="int"></span> tokens. Drag either
-number — every equation, meter, and verdict below recomputes.</span></span></p>
+parameters.</strong></p>
 
 <figure class="breakout">
   <div class="widget" data-widget="shard-grid" data-opts='{"scheme":"dp"}'></div>

@@ -9,6 +9,14 @@
 <section id="data-parallelism">
 <h2>Data Parallelism</h2>
 
+<div class="try"><i class="v v-DP">DP</i> =
+<span class="t-var" data-var="DP" data-min="1" data-max="65536" data-scale="log" data-snap="pow2" data-fmt="int"></span>
+chips share the batch of <i class="v v-B">B</i> =
+<span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span>
+tokens, so each model copy sees
+<span class="t-out" data-expr="B/DP" data-fmt="int"></span> — drag either and
+everything below follows.</div>
+
 <p><strong>Syntax:</strong></p>
 
 <div class="eq">
@@ -25,15 +33,7 @@ number of <span class="tm">TPUs</span> so long as the number of <span class="tm"
 The forward pass involves no communication, but at the end of every step,
 <strong>each <span class="tm">TPU</span> performs an <span class="op op-ar">AllReduce</span> on its
 local gradients to synchronize them before updating the
-parameters.</strong><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
-Everything on this page is live. The batch is currently
-<i class="v v-B">B</i> =
-<span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span>,
-split over <i class="v v-DP">DP</i> =
-<span class="t-var" data-var="DP" data-min="1" data-max="65536" data-scale="log" data-snap="pow2" data-fmt="int"></span>
-chips, so each copy of the model sees
-<span class="t-out" data-expr="B/DP" data-fmt="int"></span> tokens. Drag either
-number — every equation, meter, and verdict below recomputes.</span></span></p>
+parameters.</strong></p>
 
 <figure class="breakout">
   <div class="widget" data-widget="shard-grid" data-opts='{"scheme":"dp"}'></div>

@@ -4,6 +4,7 @@
    ============================================================ */
 (function () {
   "use strict";
+  const hwTerm = (t, g) => (Core.get().gpu >= 0.5 ? g : t); // vocabulary follows the hardware
   const axLabel = (a) => ({ X: "DP", Y: "TP", MX: "M_DP", MY: "M_TP", Z: "PP", MDP: "M_DP", MTP: "M_TP" }[a] || a);
   const SER = Core.SERIES, CHR = Core.CHROME;
   const SVGNS = "http://www.w3.org/2000/svg";
@@ -56,7 +57,8 @@
       lg.appendChild(document.createTextNode(label));
       return lg;
     }
-    legend.appendChild(rectKey("compute (MXU)", "background:#3a3a38"));
+    const computeKey = rectKey("compute (MXU)", "background:#3a3a38");
+    legend.appendChild(computeKey);
     const commsKey = rectKey("communication — hidden part", "background:" + SER.s1);
     legend.appendChild(commsKey);
     legend.appendChild(rectKey("exposed comms (chips idle)",
@@ -71,12 +73,8 @@
     el.appendChild(svgWrap);
     el.appendChild(readout);
 
-    // Freeze the time axis while the reader is scrubbing a number, so the bars
-    // visibly move against a still scale (the whole point of the widget).
-    let lastSpan = 0;
-
-    btnW.addEventListener("click", () => { mode = "weights"; render(Core.get()); });
-    btnA.addEventListener("click", () => { mode = "acts"; render(Core.get()); });
+    btnW.addEventListener("click", () => { mode = "weights"; update(Core.get()); });
+    btnA.addEventListener("click", () => { mode = "acts"; update(Core.get()); });
 
     function times(S) {
       // per-layer forward-pass times, per SPEC physics
@@ -96,17 +94,59 @@
       };
     }
 
-    function render(S) {
+    // ---- tweened display model ----
+    // Values and the time axis both animate (log-space exponential approach).
+    // While the reader drags, the axis only RATCHETS UP (bars move against a
+    // steady scale — the affordance); ~450 ms after the last change it
+    // relaxes back down so the bars use the space again.
+    let cur = null;   // displayed { tm, tc, span }
+    let tgt = null;   // target   { tm, tc, moved, who }
+    let rafId = null, shrinkTimer = null, lastChange = 0;
+
+    function update(S) {
+      const t = times(S);
+      if (!tgt || t.tm !== tgt.tm || t.tc !== tgt.tc) lastChange = performance.now();
+      tgt = t;
+      if (!cur) { // first paint: snap, no tween from nothing
+        cur = { tm: t.tm, tc: t.tc, span: Math.max(t.tm, t.tc) * 1.12 || 1 };
+        draw();
+        return;
+      }
+      kick();
+    }
+    function kick() { if (rafId == null) rafId = requestAnimationFrame(tick); }
+    function tick() {
+      rafId = null;
+      const scrubbing = !!document.querySelector(".t-var.dragging");
+      if (scrubbing) lastChange = performance.now();
+      const rawSpan = Math.max(tgt.tm, tgt.tc) * 1.12 || 1;
+      const quiesced = !scrubbing && performance.now() - lastChange > 450;
+      const spanTgt = quiesced ? rawSpan : Math.max(cur.span, rawSpan);
+      const approach = (c, t) => {
+        const lc = Math.log(Math.max(c, 1e-12)), lt = Math.log(Math.max(t, 1e-12));
+        return Math.abs(lt - lc) < 0.004 ? t : Math.exp(lc + (lt - lc) * 0.28);
+      };
+      cur.tm = approach(cur.tm, tgt.tm);
+      cur.tc = approach(cur.tc, tgt.tc);
+      cur.span = approach(cur.span, spanTgt);
+      draw();
+      const settled = cur.tm === tgt.tm && cur.tc === tgt.tc && cur.span === spanTgt;
+      if (!settled || scrubbing) { kick(); return; }
+      if (cur.span !== rawSpan) { // parked on the ratcheted scale — shrink later
+        clearTimeout(shrinkTimer);
+        shrinkTimer = setTimeout(kick, 480);
+      }
+    }
+
+    function draw() {
       btnW.setAttribute("aria-pressed", mode === "weights");
       btnA.setAttribute("aria-pressed", mode === "acts");
-      const { tm, tc, moved, who } = times(S);
+      const { moved, who } = tgt || cur;
+      const tm = cur.tm, tc = cur.tc, span = cur.span;
       const W = 720, H = 150, left = 118, right = 24, trackH = 26, gap = 22;
       const y1 = 34, y2 = y1 + trackH + gap;
-      const rawSpan = Math.max(tm, tc) * 1.12 || 1;
-      const scrubbing = !!document.querySelector(".t-var.dragging");
-      const span = scrubbing && lastSpan ? Math.max(lastSpan, rawSpan) : rawSpan;
-      lastSpan = span;
       commsKey.querySelector(".key-rect").style.background = mode === "weights" ? SER.s1 : SER.s2;
+      computeKey.lastChild.textContent = "compute (" + hwTerm("MXU", "tensor core") + ")";
       const xw = (t) => left + (t / span) * (W - left - right);
 
       const svg = h("svg", { viewBox: `0 0 ${W} ${H}`, role: "img",
@@ -117,8 +157,8 @@
       const stepT = Math.max(tm, tc);
 
       // track labels
-      svg.appendChild(h("text", { x: left - 10, y: y1 + trackH / 2 + 4, "text-anchor": "end", "font-size": 12, fill: CHR.ink2 }, "compute (MXU)"));
-      svg.appendChild(h("text", { x: left - 10, y: y2 + trackH / 2 + 4, "text-anchor": "end", "font-size": 12, fill: CHR.ink2 }, "network (ICI)"));
+      svg.appendChild(h("text", { x: left - 10, y: y1 + trackH / 2 + 4, "text-anchor": "end", "font-size": 12, fill: CHR.ink2 }, "compute (" + hwTerm("MXU", "tensor core") + ")"));
+      svg.appendChild(h("text", { x: left - 10, y: y2 + trackH / 2 + 4, "text-anchor": "end", "font-size": 12, fill: CHR.ink2 }, "network (" + hwTerm("ICI", "NVLink") + ")"));
 
       // baseline grid
       svg.appendChild(h("line", { x1: left, y1: y1 - 12, x2: left, y2: y2 + trackH + 14, stroke: CHR.axis, "stroke-width": 1 }));
@@ -157,7 +197,7 @@
       readout.textContent = "Moving: " + moved + " · sharing " + who + " · overlap means you pay max(compute, comms), not the sum.";
     }
 
-    return { update: render };
+    return { update };
   });
 
   /* ============================================================
@@ -173,7 +213,7 @@
     const X0 = 10, X1 = 1e5; // per-chip batch domain
     const Y0 = 0.01, Y1 = 1.35; // utilization domain (log)
 
-    const title = div("w-title", "The network roofline — per-chip batch is your arithmetic intensity against ICI");
+    const title = div("w-title", "");
     const legend = div("legend");
     function key(color, label, dashed) {
       const lg = div("lg");
@@ -365,11 +405,12 @@
       dotFlag.setAttribute("x", clampDom(px(bClamped), m.l + halfW, W - m.r - halfW));
       dotFlag.setAttribute("y", py(uNow) - 14);
 
+      title.textContent = "The network roofline — per-chip batch is your arithmetic intensity against " + hwTerm("ICI", "NVLink");
       readout.textContent =
         "Ridge point " + Core.fmt(bstar, "int") + " tokens/chip (C=" + Core.fmt(S.C, "flops") +
         " ÷ W=" + Core.fmt(S.Wici * S.MDP, "bw") + " over " + S.MDP + (S.MDP > 1 ? " axes" : " axis") +
         (S.E > 1 ? ", ×E/k = " + Core.fmt(S.E / S.k, "sig3") + " because MoE moves E·F-wide weights against k·F-wide math" : "") +
-        "). Right of it, weight-moving comms hide under compute; left of it, the network starves the MXU.";
+        "). Right of it, weight-moving comms hide under compute; left of it, the network starves the " + hwTerm("MXU", "tensor cores") + ".";
     }
 
     return { update: render };

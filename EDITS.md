@@ -51,3 +51,15 @@ Fable never writes to this file. Append items below; delete old ones whenever
 - I think it's bad that we have MXU and ICI all over the doc when you're on an
   NVIDIA GPU.  I think it would be beneficial to make sure we use NVIDIA aware
   variable names in this case.
+
+- flair: in the "One layer, two clocks — total time is whichever finishes
+  last", we should tween between the different values as the slider changes,
+  and we should also tween the x-scale changes. Also, after we stop and
+  quiesce, we should rescale so that the bars are using the space (maintaining
+  max x-scale when you're dragging seems like good affordance though)
+
+- "Everything on this page is live. The batch is currently B = ,
+  split over DP =  chips, so each copy of the model sees 3,906 tokens. Drag
+  either number — every equation, meter, and verdict below recomputes." --
+  this is not necessary. I think the problem is you need to put the DP slider
+  somewhere; put it at the top of the section, don't worry about disclosure.
