@@ -1,7 +1,7 @@
 # EDITS-LOG — sweep outcomes (single writer: Fable)
 
-> **INBOX: clear** as of 2026-08-17, commit afd6743 · EDITS.md md5 `db3bb05fd514bca7c98b00934df7f5e6`
-> (one judgment call raised in chat: "stick to X, Y, Z for TPU by default?")
+> **INBOX: clear** as of 2026-08-17, commit 71ec0d1 · EDITS.md md5 `3221ed9d5c1e3da82a4ad92531f29200`
+> (open judgment call from chat, unanswered: "stick to X, Y, Z for TPU by default?" — Fable recommends no)
 > (If `md5 -q EDITS.md` no longer matches, the difference is unswept.)
 
 One line per processed inbox item: ✓ done (commit) · ✗ skipped (why) · ? question.
@@ -56,3 +56,9 @@ Fable updates the INBOX stamp above at the end of every sweep and states it in c
 - ✓ "k as 8+1" — done for all MoE rows (+tooltip: routed top-k + always-on shared); sorts by routed count, same order as totals.
 - ✓ "ALL tooltips persist on click" — data-tips are now pinnable everywhere except click-taken elements (preset buttons, sortable headers — sorting and pinning on the same click would fight). Green scrubs stay unpinned by design: their click starts the drag; their colored letter tokens pin instead.
 - ✓ "sources: links + methodology" — every hardware-table cell's tooltip now ends with a clickable source ↗ link (pin the card, click the link); the table's ✦ note links SOURCES.md and states the synthesis rules (sparsity→dense halving, bidi→per-direction, NIC-per-GPU division, and what each ≈ estimate inherits from).
+
+## Sweep #5 (commit 71ec0d1)
+- ✓ "k in equations not tooltip'ified — refactor?" — yes, refactored: the shape tokenizer became a math tokenizer covering .eq/.eq-i too (598 new tokens incl. the bare E/k ridge fraction), and it upgrades hand-written plain <i class="v">k</i> tokens to colored hoverable ones (26 k's, 20 E's, N/M/P too; P got a meaning card). Deliberately left plain: the third-mesh-axis Z and pipeline's N_MB/N_stages/N_layers (different meanings than the tokens would claim).
+- ✓ "MXU and ICI all over the doc on NVIDIA" — the variable names now follow the hardware: W_ici→W_gpu and W_dcn→W_ib subscripts swap page-wide (Δ quotes exempt), the notation table's "ici/dcn" unit labels swap, and widget chrome (timeline track labels + legend, roofline title + readout) says tensor core / NVLink under GPU. Remaining deliberate ICI/TPU mentions: the pipelining section's "GPUs … not densely connected by ICI in the way TPUs are" comparison and 07-pods' TPU-vs-GPU contrast.
+- ✓ flair: "tween the two-clocks widget" — bars and the time axis animate (log-space exponential); while dragging the axis only ratchets up (steady scale = the affordance you named), and ~450 ms after quiescing it relaxes so the bars use the space.
+- ✓ "'Everything on this page is live' note unnecessary; put the DP slider at the top of the section" — note deleted; a compact dials line right under the Data Parallelism heading now carries the DP and B scrubs (+ per-copy tokens readout).
