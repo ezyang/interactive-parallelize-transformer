@@ -48,45 +48,46 @@
       label: () => "data parallelism (backward pass)",
       color: SER.s1,
       tm: (S) => (8 * S.B * S.D * S.k * S.F) / (S.DP * S.C),
-      tc: (S) => (8 * S.D * S.E * S.F) / (S.Wici * S.MDP),
+      tc: (S) => (8 * S.D * S.E * S.F) / Core.collectiveBandwidth(S, S.DP, S.MDP),
       tmFormula: () => "T_math = 8·B·D·k·F / (" + axLabel("X") + "·C)",
-      tcFormula: () => "T_comms = 8·D·E·F / (Wici·" + axLabel("MX") + ")",
+      tcFormula: () => "T_comms = 8·D·E·F / W_collective(DP)",
     },
     fsdp: {
       label: () => "FSDP (forward pass)",
       color: SER.s1,
       tm: (S) => (4 * S.B * S.D * S.k * S.F) / (S.DP * S.C),
-      tc: (S) => (4 * S.D * S.E * S.F) / (S.Wici * S.MDP),
+      tc: (S) => (4 * S.D * S.E * S.F) / Core.collectiveBandwidth(S, S.DP, S.MDP),
       tmFormula: () => "T_math = 4·B·D·k·F / (" + axLabel("X") + "·C)",
-      tcFormula: () => "T_comms = 4·D·E·F / (Wici·" + axLabel("MX") + ")",
+      tcFormula: () => "T_comms = 4·D·E·F / W_collective(DP)",
     },
     tp: {
       label: () => "tensor parallelism (forward pass)",
       color: SER.s2,
       tm: (S) => (4 * S.B * S.D * S.k * S.F) / (S.TP * S.C),
-      tc: (S) => (4 * S.B * S.D) / (S.Wici * S.MTP),
+      tc: (S) => (4 * S.B * S.D) / Core.collectiveBandwidth(S, S.TP, S.MTP),
       tmFormula: () => "T_math = 4·B·D·k·F / (" + axLabel("Y") + "·C)",
-      tcFormula: () => "T_comms = 4·B·D / (Wici·" + axLabel("MY") + ")",
+      tcFormula: () => "T_comms = 4·B·D / W_collective(TP)",
     },
     mixed: {
       label: () => "FSDP + TP (forward pass, N = " + axLabel("X") + "·" + axLabel("Y") + ")",
       color: SER.s3,
-      tm: (S) => (4 * S.B * S.D * S.k * S.F) / (S.DP * S.TP * S.C),
-      tc: (S) => Math.max(
-        (4 * S.D * S.E * S.F) / (S.TP * S.Wici * S.MDP),
-        (4 * S.B * S.D) / (S.DP * S.Wici * S.MTP)
-      ),
+      tm: (S) => Core.mixedTimes(S, S.DP, S.TP).tmath,
+      tc: (S) => Core.mixedTimes(S, S.DP, S.TP).tcomms,
       tmFormula: () => "T_math = 4·B·D·k·F / (N·C)",
-      tcFormula: () => "T_comms = max(4·D·E·F / (" + axLabel("Y") + "·Wici·" + axLabel("MX") +
-        "), 4·B·D / (" + axLabel("X") + "·Wici·" + axLabel("MY") + "))",
+      tcFormula: () => "T_comms = max(T_FSDP, T_TP), using the selected topology",
     },
     dcn: {
       label: () => Core.get().gpu >= 0.5 ? "cross-node data parallelism over InfiniBand (backward pass)" : "cross-pod data parallelism over DCN (backward pass)",
       color: SER.s1,
       tm: (S) => (8 * S.B * S.D * S.k * S.F) / (S.DP * S.TP * S.C),
-      tc: (S) => (8 * S.D * S.E * S.F) / (S.podSize * S.Wdcn),
+      tc: (S) => {
+        const N = Math.max(1, S.DP * S.TP);
+        const K = Math.max(1, Math.ceil(N / S.podSize));
+        if (K <= 1) return 0;
+        return (8 * S.D * S.E * S.F * K) / (N * S.Wdcn);
+      },
       tmFormula: () => "T_math = 8·B·D·k·F / (N·C)",
-      tcFormula: () => "T_comms = 8·D·E·F / (podSize·Wdcn)",
+      tcFormula: () => "T_comms = 0 for one domain; otherwise 8·D·E·F·ceil(N/podSize) / (N·Wdcn)",
     },
   };
 
@@ -194,9 +195,11 @@
       // verdict pill + headroom
       const computeBound = tm >= tc;
       pill.className = "verdict " + (computeBound ? "ok" : "bad");
-      pill.textContent = computeBound ? "compute-bound ✓" : "communication-bound ✗";
+      pill.textContent = tc === 0 ? "scale-out not needed ✓" : (computeBound ? "compute-bound ✓" : "communication-bound ✗");
       const ratio = tm / tc;
-      headroom.textContent = computeBound
+      headroom.textContent = tc === 0
+        ? " all chips fit in one fast-fabric domain."
+        : computeBound
         ? " compute exceeds comms by " + Core.fmt(ratio, "x") + " — that's your headroom before the network bites."
         : " comms exceed compute by " + Core.fmt(tc / tm, "x") + " (T_math/T_comms = " + Core.fmt(ratio, "x") + ").";
     }

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>How to Parallelize a Transformer for Training — an explorable explanation</title>
-<meta name="description" content="An interactive adaptation of Part 5 of “How to Scale Your Model”: data parallelism, FSDP, tensor parallelism, and pipeline parallelism — with every number, equation, and diagram live.">
+<meta name="description" content="An interactive TPU/GPU adaptation of the JAX Scaling Book training rooflines: DP, FSDP, TP, mixed sharding, pipeline and expert parallelism.">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -12,22 +12,21 @@
 <div class="machine" aria-label="shared model configuration">
   <span class="group"><span class="glabel">Model</span>
     <select id="model-preset" aria-label="model preset">
-      <option value='{"D":8192,"F":28672,"L":80,"E":1,"k":1}'>LLaMA-3 70B</option>
-      <option value='{"D":5120,"F":13824,"L":40,"E":1,"k":1}'>LLaMA-2 13B</option>
-      <option value='{"D":3072,"F":49152,"L":28,"E":1,"k":1}'>Gemma 7B</option>
-      <option value='{"D":7168,"F":2048,"L":61,"E":257,"k":9}'>DeepSeek-V3</option>
-      <option value='{"D":7168,"F":3072,"L":93,"E":898,"k":18}'>Kimi K3</option>
-      <option value='{"D":6144,"F":2048,"L":78,"E":257,"k":9}'>GLM-5.2</option>
-      <option value='{"D":7168,"F":3072,"L":61,"E":385,"k":7}'>DeepSeek-V4-Pro</option>
-      <option value='{"D":8192,"F":2048,"L":92,"E":513,"k":11}'>Qwen3.8-2.4T-A95B</option>
-      <option value='{"D":6144,"F":3072,"L":66,"E":258,"k":8}'>Inkling</option>
-      <option value='{"D":6144,"F":3072,"L":60,"E":129,"k":5}'>MiniMax-M3</option>
+      <option value='{"D":8192,"F":28672,"L":80,"E":1,"k":1,"Sexp":0}'>LLaMA-3 70B</option>
+      <option value='{"D":5120,"F":13824,"L":40,"E":1,"k":1,"Sexp":0}'>LLaMA-2 13B</option>
+      <option value='{"D":3072,"F":24576,"L":28,"E":1,"k":1,"Sexp":0}'>Gemma 7B</option>
+      <option value='{"D":7168,"F":2048,"L":61,"E":257,"k":9,"Sexp":1}'>DeepSeek-V3</option>
+      <option value='{"D":6144,"F":2048,"L":78,"E":257,"k":9,"Sexp":1}'>GLM-5.2</option>
+      <option value='{"D":7168,"F":3072,"L":61,"E":385,"k":7,"Sexp":1}'>DeepSeek-V4-Pro</option>
+      <option value='{"D":8192,"F":2048,"L":92,"E":513,"k":11,"Sexp":1}'>Qwen3.8-2.4T-A95B</option>
+      <option value='{"D":6144,"F":3072,"L":66,"E":258,"k":8,"Sexp":2}'>Inkling</option>
+      <option value='{"D":6144,"F":3072,"L":60,"E":129,"k":5,"Sexp":1}'>MiniMax-M3</option>
       <option value="custom">custom…</option>
     </select>
-    <span class="v v-D">D</span>=<span class="t-var" data-var="D" data-min="512" data-max="65536" data-snap="pow2" data-fmt="int"></span>
-    <span class="v v-F">F</span>=<span class="t-var" data-var="F" data-min="512" data-max="262144" data-scale="log" data-snap="125" data-fmt="si"></span>
+    <span class="v v-D">D</span>=<span class="t-var" data-var="D" data-min="512" data-max="65536" data-snap="int" data-fmt="int"></span>
+    <span class="v v-F">F</span>=<span class="t-var" data-var="F" data-min="512" data-max="262144" data-scale="log" data-snap="int" data-fmt="si"></span>
     <span class="v v-L">L</span>=<span class="t-var" data-var="L" data-min="1" data-max="200" data-scale="lin" data-snap="int" data-fmt="int"></span>
-    <span class="v v-E">E</span>=<span class="t-var" data-var="E" data-min="1" data-max="2048" data-scale="log" data-snap="pow2" data-fmt="int"></span>·<span class="v v-k">k</span>=<span class="t-var" data-var="k" data-min="1" data-max="64" data-scale="lin" data-snap="int" data-fmt="int"></span>
+    <span class="v v-E">E</span>=<span class="t-var" data-var="E" data-min="1" data-max="2048" data-scale="log" data-snap="int" data-fmt="int"></span>·<span class="v v-k">k</span>=<span class="t-var" data-var="k" data-min="1" data-max="64" data-scale="lin" data-snap="int" data-fmt="int"></span><span class="t-show inline" data-expr="E&gt;1">·shared=<span class="t-var" data-var="Sexp" data-min="0" data-max="64" data-scale="lin" data-snap="int" data-fmt="int"></span></span>
   </span>
   <span class="group"><span class="glabel">Hardware</span>
     <select id="hw-preset" aria-label="hardware preset">
@@ -37,6 +36,7 @@
       <option value='{"C":2.25e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.8e11,"podSize":8,"gpu":1,"MDP":1,"MTP":1,"effC":0.69,"effIci":0.82,"effDcn":0.85}'>B200 (8-GPU node)</option>
       <option value='{"C":2.5e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.86e11,"podSize":72,"gpu":1,"MDP":1,"MTP":1,"effC":0.70,"effIci":0.82,"effDcn":0.85}'>GB200 NVL72</option>
       <option value='{"C":2.5e15,"Wici":9e11,"Wdcn":1e11,"HBM":2.88e11,"podSize":72,"gpu":1,"MDP":1,"MTP":1,"effC":0.70,"effIci":0.82,"effDcn":0.85}'>GB300 NVL72</option>
+      <option value='{"C":9.9e14,"Wici":2e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1,"effC":0.73,"effIci":0.80,"effDcn":0.85}'>H800 (DeepSeek)</option>
       <option value="custom">custom…</option>
     </select>
     <span class="v v-C">C</span>=<span class="t-var" data-var="C" data-min="1e13" data-max="5e15" data-scale="log" data-fmt="flops"></span>
@@ -60,7 +60,7 @@
   <a href="#mixed" class="sub">FSDP + Tensor Parallelism</a>
   <a href="#expert-parallelism" class="sub">Expert Parallelism</a>
   <a href="#pipelining" class="sub">Pipelining</a>
-  <a href="#pods" class="sub">Scaling Across Pods</a>
+  <a href="#pods" class="sub t-show" data-expr="1-gpu">Scaling Across Pods</a>
   <a href="#gpus" class="sub">The GPU Network Model</a>
   <a href="#takeaways">Takeaways</a>
   <a href="#problems">Problems to Work</a>
@@ -71,19 +71,19 @@
 <header>
   <h1>How to Parallelize a Transformer for Training</h1>
   <p class="byline">An <em>explorable</em> adaptation of <a href="https://jax-ml.github.io/scaling-book/training/">Part 5 of “How to Scale Your Model”</a> by Jacob Austin, Sholto Douglas, Roy Frostig, Anselm Levskaya, Charlie Chen, Sharad Vikram, Federico Lebron, Peter Choy, Vinay Ramasesh, Albert Webson &amp; Reiner Pope (Google DeepMind).</p>
-  <p class="dek">Here we discuss four main parallelism schemes used during LLM training: data parallelism, fully-sharded data parallelism (FSDP), tensor parallelism, and pipeline parallelism. For each, we calculate at what point we become bottlenecked by communication.</p>
+  <p class="dek">✦ We begin with the original dense TPU schemes — data parallelism, FSDP, tensor parallelism, their mixed form, and pipelining — then splice in the GPU fabric model and expert parallelism for MoEs. For each, we ask when communication becomes the bottleneck. <span style="font-size:0.85em">(This summary is the adaptation’s; the chapter’s own dek described its four dense schemes.)</span></p>
 
   <div class="howto">
     <p style="margin:0 0 .6em"><strong>This page is a working model, not a description of one.</strong>
     Every <span class="k">green number</span> can be dragged left or right, or double-clicked to type an exact value. Every <span class="k">blue number</span> is computed live from the green ones — try it here: drag the batch
     <span class="k"><span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span></span> and watch the per-chip batch
-    <span class="k"><span class="t-out" data-expr="B/DP" data-fmt="int"></span></span> follow (hover any blue number for its formula). All of them share <em>one</em> model of a training run (the strip pinned above), so a change made anywhere propagates everywhere: equations, diagrams, charts, even the answers to the exercises. And scrub without fear —
+    <span class="k"><span class="t-out" data-expr="B/DP" data-fmt="int"></span></span> follow (hover any blue number for its formula). They share one model-and-hardware state, so a change made anywhere propagates everywhere. Parallelism degrees remain scheme-local: the dense mixed group uses <span class="eq-i">N = DP·TP</span>, while EP and PP are modeled in their own sections; composite worked examples state their full product explicitly. And scrub without fear —
     <button class="reset">reset</button> restores every scrubbed number to its default while keeping your model, hardware, and spec/measured picks (it's the same button as in the top bar, which lights up orange whenever a scrub has strayed), any single number reverts on its own when you double-click it and commit it blank, and the browser's back button walks through your earlier configurations.</p>
-    <p style="margin:0"><strong>Whose words are you reading?</strong> The main column is the original chapter's text (© 2022 Maruan Al-Shedivat, © 2025 Google LLC, <a href="LICENSE-scaling-book.txt">MIT license</a>), with a handful of disclosed conventions:
+    <p style="margin:0"><strong>Whose words are you reading?</strong> Source passages come from the original TPU and GPU chapters (© 2022 Maruan Al-Shedivat, © 2025 Google LLC, <a href="LICENSE-scaling-book.txt">MIT license</a>); AI-authored departures are explicitly labeled, with these conventions:
     wherever the chapter printed a fixed number, this page computes it live (these in-place swaps aren't individually marked);
     the interactive figures and their captions replace the original static figures;
-    <span class="k">✦&nbsp;margin notes</span> are this adaptation's voice — written by Fable, the Anthropic model that built this edition — instructions, asides, and the added
-    <a href="#roofline">roofline primer</a>, <a href="#expert-parallelism">expert parallelism</a>, and <a href="#gpus">GPU network</a> sections;
+    <span class="k">✦&nbsp;margin notes</span> and passages explicitly labeled as adaptation are AI-written editorial voice — the initial edition was built by Fable (Anthropic) and this adversarial review and its corrections were performed by OpenAI Codex — including instructions, asides, and the new
+    <a href="#roofline">roofline primer</a>; the <a href="#expert-parallelism">expert parallelism</a> and <a href="#gpus">GPU network</a> sections instead mash up Chapter 12 source passages, with their AI-written connective and adaptation prose labeled by the same convention;
     the chapter's single-letter mesh-axis names are rendered as named parallelism degrees throughout — its X is <span class="k">DP</span>, its Y is <span class="k">TP</span>, the pipelining section's Z is <span class="k">PP</span>, and chapter 12's expert axis Z is <span class="k">EP</span> (a global substitution; each is its own scrubbable variable, adjusted in the text where its section uses it);
     under a GPU preset the hardware vocabulary follows suit — TPU→GPU, ICI→NVLink, DCN→InfiniBand, pod→node, MXU→tensor&nbsp;core — so the article reads as one consistent machine, and any TPU preset restores the chapter's exact words (sentences that deliberately <em>compare</em> the two never swap);
     content woven <span class="add">into the chapter's text by this edition</span> carries a dotted underline like that (and splice edits beside it that standard quotation practice would allow — a bracket or an ellipsis — go unmarked);

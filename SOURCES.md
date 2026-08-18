@@ -44,7 +44,7 @@ Current preset: C=9.9e14, Wici=4.5e11, Wdcn=5e10, HBM=8e10, podSize=8.
 - podSize (NVLink domain) — **8** — "Sets of 8 GPUs called nodes … for H100, we have 4 NVSwitches per node" (source/gpus.md) — https://jax-ml.github.io/scaling-book/gpus/ — 2026-08-17.
 
 ## B200 (8-GPU node)
-Current preset: C=2.25e15, Wici=9e11, Wdcn=5e10, HBM=1.92e11, podSize=8.
+Current preset: C=2.25e15, Wici=9e11, Wdcn=5e10, HBM=1.8e11, podSize=8.
 
 - C (dense bf16) — **2.25e15 FLOP/s** — HGX B200 spec table (per 8-GPU system): "FP16/BF16 Tensor Core: 36 PFLOPS" with footnote "Specification in Sparse. Dense is ½ sparse spec shown." — https://www.nvidia.com/en-us/data-center/hgx/ — 2026-08-17. Per GPU dense = 36/8/2 = **2.25 PFLOP/s**. Cross-check: DGX B200 "FP8 Tensor Core: 72 PFLOPS" (sparse) → 4.5 PF dense FP8/GPU = 2× bf16 ✓ (https://www.nvidia.com/en-us/data-center/dgx-b200/, 2026-08-17). Book: "B200 … 2.3e15" (rounded; source/gpus.md).
 - W_link (NVLink 5 egress per GPU) — **9e11 B/s** — "NVLink GPU-to-GPU Bandwidth: 1.8 TB/s" (bidirectional; per-direction 900 GB/s) — https://www.nvidia.com/en-us/data-center/hgx/ — 2026-08-17. Book: "NVLink 5 with twice the overall NVLink bandwidth (900GB/s)" (source/gpus.md Appendix A).
@@ -53,12 +53,12 @@ Current preset: C=2.25e15, Wici=9e11, Wdcn=5e10, HBM=1.92e11, podSize=8.
 - podSize (NVLink domain) — **8** — "B200 still has 8-GPU nodes, just like H100s" (source/gpus.md Appendix A) — https://jax-ml.github.io/scaling-book/gpus/ — 2026-08-17.
 
 ## GB200 NVL72
-Current preset: C=2.25e15, Wici=9e11, Wdcn=5e10, HBM=1.92e11, podSize=72.
+Current preset: C=2.5e15, Wici=9e11, Wdcn=5e10, HBM=1.86e11, podSize=72.
 
-- C (dense bf16) — **2.5e15 FLOP/s** — GB200 NVL72 spec table (per 72-GPU rack): "FP16/BF16 Tensor Core: 360 PFLOPS" with footnote "Specification in sparse. Dense is one-half sparse spec shown." — https://www.nvidia.com/en-us/data-center/gb200-nvl72/ — 2026-08-17. Per GPU dense = 360/72/2 = **2.5 PFLOP/s**. Note this is HIGHER than the 8-GPU HGX B200 figure (2.25) — the GB200's B200 GPUs run at a higher power limit (liquid-cooled ~1200 W vs ~1000 W). Preset value 2.25e15 is therefore low; see discrepancies.
+- C (dense bf16) — **2.5e15 FLOP/s** — GB200 NVL72 spec table (per 72-GPU rack): "FP16/BF16 Tensor Core: 360 PFLOPS" with footnote "Specification in sparse. Dense is one-half sparse spec shown." — https://www.nvidia.com/en-us/data-center/gb200-nvl72/ — 2026-08-17. Per GPU dense = 360/72/2 = **2.5 PFLOP/s**. Note this is higher than the 8-GPU HGX B200 figure (2.25) because the GB200's B200 GPUs run at a higher power limit (liquid-cooled ~1200 W vs ~1000 W). Preset ✓.
 - W_link (NVLink 5 egress per GPU) — **9e11 B/s** — "fifth-generation NVLink … provides 1.8 TB/s of GPU-to-GPU interconnect" (bidirectional; per-direction 900 GB/s); rack total "130 TB/s" — https://www.nvidia.com/en-us/data-center/gb200-nvl72/ — 2026-08-17. Book: "GB200 NVL72 … combine 72 GPUs in a single NVLink domain with full 900GB/s of GPU to GPU bandwidth" (source/gpus.md).
 - W_scale-out (IB share per GPU) — **5e10 B/s** — DGX GB200 SuperPod reference design uses one ConnectX-7 400 Gb/s per GPU (book: GB200 SuperPods get "proportionally higher (9x) IB fat tree bandwidth" vs an 8-GPU node, i.e. 72 × 400 Gb/s per rack; source/gpus.md, https://jax-ml.github.io/scaling-book/gpus/, 2026-08-17). NVIDIA's NVL72 page names Quantum-X800/Spectrum-X but prints no per-GPU NIC figure — treat 400 Gb/s (5e10 B/s) as the H100-generation-carryover reference design.
-- HBM capacity — **186 GB HBM3e** (per GPU) — spec table: rack "13.4 TB HBM3E | 576 TB/s", Superchip (2 GPUs) "372 GB HBM3E | 16 TB/s" → 186 GB, 8 TB/s per GPU — https://www.nvidia.com/en-us/data-center/gb200-nvl72/ — 2026-08-17. Preset says 1.92e11 (192 GB) — see discrepancies. RECOMMEND 186 GB (1.86e11).
+- HBM capacity — **186 GB HBM3e** (per GPU) — spec table: rack "13.4 TB HBM3E | 576 TB/s", Superchip (2 GPUs) "372 GB HBM3E | 16 TB/s" → 186 GB, 8 TB/s per GPU — https://www.nvidia.com/en-us/data-center/gb200-nvl72/ — 2026-08-17. Preset ✓ (1.86e11).
 - podSize (NVLink domain) — **72** — "GB200 NVL72 … 72 Blackwell GPUs" — https://www.nvidia.com/en-us/data-center/gb200-nvl72/ — 2026-08-17.
 
 ## GB300 NVL72
@@ -67,14 +67,14 @@ Current preset: C=2.5e15, Wici=9e11, Wdcn=1e11, HBM=2.88e11, podSize=72.
 - C (dense bf16) — **2.5e15 FLOP/s** — GB300 NVL72 spec table (per 72-GPU rack): "FP16/BF16: 360 PFLOPS" under "All Tensor Core specifications are with sparsity unless otherwise noted" — https://www.nvidia.com/en-us/data-center/gb300-nvl72/ — 2026-08-17. Per GPU dense = 360/72/2 = **2.5 PFLOP/s** — same bf16 as GB200 (Blackwell Ultra's uplift is in NVFP4: "1440 PFLOPS sparse | 1080 PFLOPS dense" vs GB200's 1440|720). Preset ✓.
 - W_link (NVLink 5 egress per GPU) — **9e11 B/s** — same fifth-gen NVLink as GB200: rack "NVLink Bandwidth: 130 TB/s", 1.8 TB/s GPU-to-GPU bidirectional → 900 GB/s per direction — https://www.nvidia.com/en-us/data-center/gb300-nvl72/ — 2026-08-17.
 - W_scale-out (per GPU) — **1e11 B/s** — "hosts two ConnectX-8 devices, providing 800 gigabits per second (Gb/s) of network connectivity for each GPU" → 800 Gb/s = 100 GB/s per GPU — https://www.nvidia.com/en-us/data-center/gb300-nvl72/ — 2026-08-17. Preset ✓.
-- HBM capacity — **288 GB HBM3e** (per GPU) — spec table: "GPU Memory | Bandwidth: 20 TB | Up to 576 TB/s" per rack → 20 TB/72 ≈ 288 GB per GPU (HBM3E) — https://www.nvidia.com/en-us/data-center/gb300-nvl72/ — 2026-08-17. Preset ✓ (2.88e11).
+- HBM capacity — **288 GB HBM3e** (per GPU preset) — NVIDIA's rack spec rounds "GPU Memory | Bandwidth" to "20 TB | Up to 576 TB/s"; 288 GB × 72 = 20.736 TB raw, consistent with that rounded rack total — https://www.nvidia.com/en-us/data-center/gb300-nvl72/ — 2026-08-17. Preset ✓ (2.88e11).
 - podSize (NVLink domain) — **72** — "GB300 NVL72 … 72 Blackwell Ultra GPUs" — https://www.nvidia.com/en-us/data-center/gb300-nvl72/ — 2026-08-17.
 
 ## H800 SXM (8-GPU node; "H800 (DeepSeek)" preset)
-Current preset (sections/07-pods.html, index.html t-preset buttons): C=9.9e14, Wici=3e11, Wdcn=5e10, HBM=8e10, podSize=8.
+Current preset: C=9.9e14, Wici=2e11, Wdcn=5e10, HBM=8e10, podSize=8.
 
 - C (dense bf16) — **9.9e14 FLOP/s** — "BF16: 989.43 TFLOPS, with sparsity: 1978.86 TFLOPS" — https://www.waredb.com/processor/nvidia-h800 — 2026-08-17 (NVIDIA no longer hosts a public H800 datasheet; the H800 kept H100 SXM's tensor-core throughput and cut NVLink + FP64). Book uses the same: "990e12" for H800 (source/gpus.md §rooflines). DeepSeek-V3 confirms the part: "trained on a cluster equipped with 2048 NVIDIA H800 GPUs" — https://arxiv.org/abs/2412.19437 — 2026-08-17.
-- W_link (NVLink egress per GPU) — spec **2e11 B/s** (400 GB/s bidirectional → 200 GB/s per direction) — "the H800 supports NVLink at 400 GB/s of bidirectional bandwidth … Reduced NVLink bandwidth (400 vs 900 GB/s) compared to H100" — https://getdeploying.com/gpus/nvidia-h800 — 2026-08-17 (secondary source; no vendor page exists). MEASURED: "NVLink offers a bandwidth of 160 GB/s, roughly 3.2 times that of IB (50 GB/s)" — DeepSeek-V3 technical report, https://arxiv.org/abs/2412.19437 — 2026-08-17 (DeepSeek quotes the practically usable per-direction figure). The book instead says "lower 300GB/s of bandwidth (instead of 450GB/s on H100)" (source/gpus.md §rooflines), which matches neither the 200 GB/s spec-per-direction nor DeepSeek's 160 GB/s; the current preset Wici=3e11 follows the book. RECOMMEND spec 2e11 with effIci≈0.8 (160/200) — see discrepancies.
+- W_link (NVLink egress per GPU) — spec **2e11 B/s** (400 GB/s bidirectional → 200 GB/s per direction) — "the H800 supports NVLink at 400 GB/s of bidirectional bandwidth … Reduced NVLink bandwidth (400 vs 900 GB/s) compared to H100" — https://getdeploying.com/gpus/nvidia-h800 — 2026-08-17 (secondary source; no vendor page exists). MEASURED: "NVLink offers a bandwidth of 160 GB/s, roughly 3.2 times that of IB (50 GB/s)" — DeepSeek-V3 technical report, https://arxiv.org/abs/2412.19437 — 2026-08-17 (DeepSeek quotes the practically usable per-direction figure). The book instead says "lower 300GB/s of bandwidth (instead of 450GB/s on H100)" (source/gpus.md §rooflines), which matches neither the 200 GB/s spec-per-direction nor DeepSeek's 160 GB/s. The preset uses the 2e11 spec with effIci=0.80, reproducing DeepSeek's 1.6e11 measured value.
 - W_scale-out (IB share per GPU) — **5e10 B/s** — "IB (50 GB/s)" per GPU (400 Gb/s NIC) — DeepSeek-V3 technical report, https://arxiv.org/abs/2412.19437 — 2026-08-17. Preset ✓.
 - HBM capacity — **80 GB HBM3** — "80 GB … HBM3 5120-bit … 3361 GB/s" — https://www.waredb.com/processor/nvidia-h800 — 2026-08-17. Preset ✓ (8e10).
 - podSize (NVLink domain) — **8** — "Each node in the H800 cluster contains 8 GPUs connected by NVLink and NVSwitch within nodes" — https://arxiv.org/abs/2412.19437 — 2026-08-17. Preset ✓.
@@ -100,7 +100,7 @@ Current preset (sections/07-pods.html, index.html t-preset buttons): C=9.9e14, W
 - GB300 NVL72 — **nothing citable found** (systems too new; DGX GB300 docs carry no busbw figures as of 2026-08-17).
 - TPU DCN / GPU IB achieved efficiency — **no clean public measurement found for either** (TPU multislice posts claim scaling efficiency, not achieved GB/s; IB validation guides give pass thresholds, e.g. "a result under 80% of the expected value should trigger fabric investigation", Leviathan, URL above). Marked ESTIMATE below.
 
-## Discrepancies: sources vs current preset values
+## Cross-check: sources vs current preset values
 
 shell-top.html #hw-preset options (plus the H800 t-preset in sections/07-pods.html / index.html):
 
@@ -124,20 +124,20 @@ shell-top.html #hw-preset options (plus the H800 t-preset in sections/07-pods.ht
 | B200 · C | 2.25e15 | 2.25e15 (HGX B200: 36 PF sparse ÷ 8 ÷ 2) | OK |
 | B200 · Wici | 9e11 | 900 GB/s per direction (1.8 TB/s bidi) | OK |
 | B200 · Wdcn | 5e10 | 400 Gb/s CX-7 per GPU (DGX B200) | OK |
-| B200 · HBM | 1.92e11 | **1.8e11** (DGX B200 "1,440 GB total" ÷ 8 = 180 GB HBM3e; 192 GB was the announcement figure) | **DISCREPANCY — recommend 1.8e11** |
+| B200 · HBM | 1.8e11 | 1.8e11 (DGX B200 "1,440 GB total" ÷ 8 = 180 GB HBM3e; 192 GB was the announcement figure) | OK |
 | B200 · podSize | 8 | 8 | OK |
-| GB200 · C | 2.25e15 | **2.5e15** (NVL72: 360 PF sparse ÷ 72 ÷ 2; higher power limit than HGX B200) | **DISCREPANCY — recommend 2.5e15** |
+| GB200 · C | 2.5e15 | 2.5e15 (NVL72: 360 PF sparse ÷ 72 ÷ 2; higher power limit than HGX B200) | OK |
 | GB200 · Wici | 9e11 | 900 GB/s per direction | OK |
 | GB200 · Wdcn | 5e10 | 400 Gb/s CX-7 per GPU (reference design; NVL72 page silent) | OK (mark ≈) |
-| GB200 · HBM | 1.92e11 | **1.86e11** (rack "13.4 TB HBM3E" ÷ 72 = 186 GB) | **DISCREPANCY — recommend 1.86e11** |
+| GB200 · HBM | 1.86e11 | 1.86e11 (Superchip "372 GB HBM3E" ÷ 2 = 186 GB) | OK |
 | GB200 · podSize | 72 | 72 | OK |
 | GB300 · C | 2.5e15 | 2.5e15 (360 PF sparse ÷ 72 ÷ 2) | OK |
 | GB300 · Wici | 9e11 | 900 GB/s per direction | OK |
 | GB300 · Wdcn | 1e11 | 800 Gb/s CX-8 per GPU | OK |
-| GB300 · HBM | 2.88e11 | 288 GB (20 TB ÷ 72, HBM3e) | OK |
+| GB300 · HBM | 2.88e11 | 288 GB nominal (72 × 288 GB = 20.736 TB; rack page rounds to "20 TB") | OK |
 | GB300 · podSize | 72 | 72 | OK |
 | H800 · C | 9.9e14 | 989.43 TFLOPS dense | OK |
-| H800 · Wici | 3e11 | **spec 2e11** (400 GB/s bidi ÷ 2); measured 1.6e11 (DeepSeek). The 3e11 follows the book's "300GB/s", which matches neither | **DISCREPANCY — recommend 2e11 spec (eff 0.80 → 1.6e11 measured); if 3e11 kept for book-fidelity, effIci must be 0.53** |
+| H800 · Wici | 2e11 | spec 2e11 (400 GB/s bidi ÷ 2); measured 1.6e11 (DeepSeek), represented by effIci=0.80 | OK |
 | H800 · Wdcn | 5e10 | "IB (50 GB/s)" (DeepSeek) | OK |
 | H800 · HBM | 8e10 | 80 GB HBM3 | OK |
 | H800 · podSize | 8 | 8 | OK |

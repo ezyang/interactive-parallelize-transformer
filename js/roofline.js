@@ -73,22 +73,24 @@
     el.appendChild(svgWrap);
     el.appendChild(readout);
 
-    btnW.addEventListener("click", () => { mode = "weights"; update(Core.get()); });
-    btnA.addEventListener("click", () => { mode = "acts"; update(Core.get()); });
+    btnW.addEventListener("click", () => { mode = "weights"; update(Core.getEffective()); });
+    btnA.addEventListener("click", () => { mode = "acts"; update(Core.getEffective()); });
 
     function times(S) {
       // per-layer forward-pass times, per SPEC physics
       if (mode === "weights") {
+        const W = Core.collectiveBandwidth(S, S.DP, S.MDP);
         return {
           tm: (4 * S.B * S.D * (S.k * S.F)) / (S.DP * S.C),
-          tc: (4 * S.D * (S.E * S.F)) / (S.Wici * S.MDP),
+          tc: (4 * S.D * (S.E * S.F)) / W,
           moved: "the layer's weights (2·D·" + (S.E > 1 ? "E·" : "") + "F bytes ×2 gathers)",
           who: "FSDP over " + axLabel("X") + "=" + Core.fmt(S.DP, "int") + " chips",
         };
       }
+      const W = Core.collectiveBandwidth(S, S.TP, S.MTP);
       return {
         tm: (4 * S.B * S.D * (S.k * S.F)) / (S.TP * S.C),
-        tc: (4 * S.B * S.D) / (S.Wici * S.MTP),
+        tc: (4 * S.B * S.D) / W,
         moved: "the layer's activations (2·B·D bytes ×2 collectives)",
         who: "TP over " + axLabel("Y") + "=" + Core.fmt(S.TP, "int") + " chips",
       };
@@ -204,7 +206,7 @@
      roofline-curve
      Classic roofline, but against the NETWORK: x = per-chip batch
      B/X (your arithmetic intensity vs ICI), y = usable fraction of
-     peak FLOPs, log-log. Ridge at (E/k)·alpha/MX. Draggable operating dot.
+     peak FLOPs, log-log. Ridge at (E/k)·C/W_collective. Draggable operating dot.
      Orange overlay: TP utilization (flat in B).
      ============================================================ */
   Widgets.register("roofline-curve", function (el, opts) {
@@ -286,7 +288,7 @@
       const rect = svg.getBoundingClientRect();
       const sx = ((clientX - rect.left) / rect.width) * W;
       const b = clampDom(fromPx(sx), X0, X1);
-      const S = Core.get();
+      const S = Core.getEffective();
       const Xfix = draggingXfix != null ? draggingXfix : S.DP;
       // snap B to 1-2-5 grid
       const exp = Math.floor(Math.log10(b * Xfix));
@@ -332,10 +334,12 @@
       const sx = ((ev.clientX - rect.left) / rect.width) * W;
       if (sx < m.l || sx > W - m.r) { hideTip(); return; }
       const b = fromPx(sx);
-      const S = Core.get();
-      const bstar = (S.E / S.k) * (S.C / S.Wici) / S.MDP;
+      const S = Core.getEffective();
+      const Wdp = Core.collectiveBandwidth(S, S.DP, S.MDP);
+      const Wtp = Core.collectiveBandwidth(S, S.TP, S.MTP);
+      const bstar = (S.E / S.k) * (S.C / Wdp);
       const uW = Math.min(1, b / bstar);
-      const uTP = Math.min(1, (S.k * S.F * S.MTP) / (S.TP * (S.C / S.Wici)));
+      const uTP = Math.min(1, (S.k * S.F) / (S.TP * (S.C / Wtp)));
       hair.setAttribute("x1", sx); hair.setAttribute("x2", sx);
       hair.setAttribute("visibility", "visible");
       tip.textContent = "";
@@ -356,8 +360,10 @@
     function render(S) {
       xAxisLabel.textContent = "tokens per chip per step  (B ÷ " + axLabel("X") + ")";
       // ridge point for weight-moving schemes: weights are E·F wide, math only k·F
-      const bstar = (S.E / S.k) * (S.C / S.Wici) / S.MDP;
-      const uTP = Math.min(1, (S.k * S.F * S.MTP) / (S.TP * (S.C / S.Wici)));  // TP utilization, flat in b
+      const Wdp = Core.collectiveBandwidth(S, S.DP, S.MDP);
+      const Wtp = Core.collectiveBandwidth(S, S.TP, S.MTP);
+      const bstar = (S.E / S.k) * (S.C / Wdp);
+      const uTP = Math.min(1, (S.k * S.F) / (S.TP * (S.C / Wtp)));  // TP utilization, flat in b
       const bNow = S.B / S.DP;
 
       // washes: bandwidth-bound region left of ridge
@@ -386,7 +392,7 @@
       if (bstar > X0 && bstar < X1) {
         gAnno.appendChild(h("line", { x1: px(bstar), y1: py(1), x2: px(bstar), y2: H - m.b, stroke: CHR.muted, "stroke-width": 1, "stroke-dasharray": "2 3" }));
         gAnno.appendChild(h("text", { x: px(bstar), y: m.t + 10, "text-anchor": "middle", "font-size": 11, fill: CHR.ink2, "font-weight": 600 },
-          (S.E > 1 ? "ridge: (E/k)·C ÷ (W·M) = " : "ridge: C ÷ (W·M) = ") + Core.fmt(bstar, "int")));
+          (S.E > 1 ? "ridge: (E/k)·C ÷ W_collective = " : "ridge: C ÷ W_collective = ") + Core.fmt(bstar, "int")));
       }
       gAnno.appendChild(h("text", { x: W - m.r - 4, y: py(uTPc) - 6, "text-anchor": "end", "font-size": 11, fill: CHR.ink2 },
         "TP at " + axLabel("Y") + "=" + Core.fmt(S.TP, "int") + (uTP >= 1 ? " (fully hidden)" : "")));
@@ -408,7 +414,7 @@
       title.textContent = "The network roofline — per-chip batch is your arithmetic intensity against " + hwTerm("ICI", "NVLink");
       readout.textContent =
         "Ridge point " + Core.fmt(bstar, "int") + " tokens/chip (C=" + Core.fmt(S.C, "flops") +
-        " ÷ W=" + Core.fmt(S.Wici * S.MDP, "bw") + " over " + S.MDP + (S.MDP > 1 ? " axes" : " axis") +
+        " ÷ W_collective=" + Core.fmt(Wdp, "bw") +
         (S.E > 1 ? ", ×E/k = " + Core.fmt(S.E / S.k, "sig3") + " because MoE moves E·F-wide weights against k·F-wide math" : "") +
         "). Right of it, weight-moving comms hide under compute; left of it, the network starves the " + hwTerm("MXU", "tensor cores") + ".";
     }

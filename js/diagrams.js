@@ -281,10 +281,16 @@
       const v = dimVal(S, d[0]) / axShards(S, d[1]);
       return { label: d[1] ? d[0] + "/" + axLabel(d[1]) : d[0], value: v };
     });
+    // Weight rectangles show one expert's 2-D matrix geometrically, but the
+    // DP/FSDP/TP schemes on this page retain every expert locally.  Account
+    // for that leading E dimension in both the caption and byte total.
+    const expertPrefix = arr.sub ? "E×" : "";
+    const expertValue = arr.sub ? S.E : 1;
     return {
-      shapeSym: "[" + parts.map((p) => p.label).join(", ") + "]",
-      shapeNum: "[" + parts.map((p) => Core.fmt(p.value, "si")).join(", ") + "]",
-      bytes: 2 * parts[0].value * parts[1].value,
+      shapeSym: expertPrefix + "[" + parts.map((p) => p.label).join(", ") + "]",
+      shapeNum: (arr.sub ? Core.fmt(S.E, "si") + "×" : "") +
+        "[" + parts.map((p) => Core.fmt(p.value, "si")).join(", ") + "]",
+      bytes: 2 * expertValue * parts[0].value * parts[1].value,
     };
   }
 

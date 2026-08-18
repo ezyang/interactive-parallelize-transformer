@@ -34,9 +34,9 @@
      collective
      Ring of 8 chips animating a collective op hop-by-hop.
      Bidirectional: two flows, one per ring direction, like a real
-     1D torus. opts: { op, bytesExpr, axisVar, label }.
+     1D torus. opts: { op, bytesExpr, axisVar, degreeVar, label }.
        op = allgather | reducescatter | allreduce | ar-decomp
-     time = k·bytes/(Wici·M), k=2 for allreduce/ar-decomp else 1.
+     time = k·bytes/W_collective, k=2 for allreduce/ar-decomp else 1.
      ============================================================ */
   const OP_NAMES = {
     allgather: "AllGather",
@@ -51,6 +51,7 @@
     const op = opts.op || "allreduce";
     const bytesExpr = opts.bytesExpr || "2*D*F";
     const axisVar = opts.axisVar || "MDP";
+    const degreeVar = opts.degreeVar || "DP";
     const k = op === "allreduce" || op === "ar-decomp" ? 2 : 1;
     const phases = op === "allgather" ? ["ag"] : op === "reducescatter" ? ["rs"] : ["rs", "ag"];
     const NC = 8, HOPS = NC / 2;
@@ -293,11 +294,16 @@
     function update(S) {
       const bytes = getBytes();
       const M = S[axisVar] != null ? S[axisVar] : 1;
-      const time = (k * bytes) / (S.Wici * M);
+      const degree = S[degreeVar] != null ? S[degreeVar] : 1;
+      const bandwidth = Core.collectiveBandwidth(S, degree, M);
+      const fabric = S.gpu
+        ? (degree <= S.podSize ? "NVLink domain" : "scale-out-limited fabric")
+        : Core.fmt(M, "int") + (M > 1 ? " ICI axes" : " ICI axis");
+      const time = (k * bytes) / bandwidth;
       readout.textContent =
         "bytes = " + bytesExpr.replace(/\*/g, "·") + " = " + Core.fmt(bytes, "bytes") +
-        " · over M = " + Core.fmt(M, "int") + (M > 1 ? " ICI axes" : " ICI axis") +
-        " · T = " + k + "·bytes ÷ (Wici·" + axLabel(axisVar) + ") = " + Core.fmt(time, "time");
+        " · " + fabric + " bandwidth " + Core.fmt(bandwidth, "bw") +
+        " · T = " + k + "·bytes ÷ W_collective = " + Core.fmt(time, "time");
       if (arTime) {
         arTime.textContent = "AllReduce · " + Core.fmt(time, "time");
         rsTime.textContent = "ReduceScatter · " + Core.fmt(time / 2, "time");
@@ -312,7 +318,9 @@
      K = ceil(N / podSize) pods (draw at most 4, then an ellipsis
      pod), each a mini mesh of chips, joined by thin gray DCN links
      labeled with the live per-chip Wdcn. Readout compares the
-     per-pod batch B/K against alphaDcn with a verdict pill.
+     balanced-domain batch B/K against alphaDcn with a verdict pill.  When
+     N is not an exact multiple of podSize, the K domains are modeled as
+     evenly filled rather than pretending the final partial domain is full.
      ============================================================ */
   Widgets.register("pods-diagram", function (el, opts) {
     el.innerHTML = "";
@@ -399,7 +407,8 @@
 
       // decide the row of boxes: pods 1..drawn, with an ellipsis box
       // standing in second-to-last and the final box labeled pod K
-      const chipsLabel = Core.fmt(Math.min(S.podSize, N), "si") + " chips";
+      const domainChips = N / K;
+      const chipsLabel = Core.fmt(domainChips, "si") + " chips (balanced)";
       const boxes = [];
       for (let i = 0; i < nBoxes; i++) {
         if (showEllipsis && i === nBoxes - 2) boxes.push({ ellipsis: true, label: "· · ·" });

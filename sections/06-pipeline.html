@@ -91,17 +91,21 @@ for i in range(num_layers - 1, -1, -1):
   numbers for one microbatch.</span></span></p>
 
   <div class="eq-live">
-    T<sub>hop</sub> = 2·<i class="v v-D">D</i>·(<i class="v v-B">B</i>/<i class="v v-M">M<sub>micro</sub></i>) ÷ <i class="v v-W">W<sub>ici</sub></i> =
-    <span class="t-out" data-expr="2*D*(B/Mmicro)/Wici" data-fmt="time"></span>
+    T<sub>hop</sub> = 2·<i class="v v-D">D</i>·(<i class="v v-B">B</i>/<i class="v v-M">M<sub>micro</sub></i>) ÷ <i class="v v-W">W<sub>stage</sub></i> =
+    <span class="t-out" data-expr="2*D*(B/Mmicro)/(gpu ? min(Wici,Wdcn*podSize) : Wici)" data-fmt="time"></span>
     vs one stage's compute
     <span class="t-out" data-expr="4*(B/Mmicro)*D*k*F*ceil(L/PP)/C" data-fmt="time"></span> →
-    <span class="t-if" data-expr="2*D*(B/Mmicro)/Wici &lt; 4*(B/Mmicro)*D*k*F*ceil(L/PP)/C" data-then="hop hides under the stage clock ✓" data-else="hop exposed ✗"></span><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Try:
+    <span class="t-if" data-expr="2*D*(B/Mmicro)/(gpu ? min(Wici,Wdcn*podSize) : Wici) &lt; 4*(B/Mmicro)*D*k*F*ceil(L/PP)/C" data-then="hop hides under the stage clock ✓" data-else="hop exposed ✗"></span><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Try:
     this check passes with room to spare — slash
     <i class="v v-W">W<sub>ici</sub></i> =
     <span class="t-var" data-var="Wici" data-min="1e10" data-max="2e12" data-scale="log" data-fmt="bw"></span>
     tenfold and it <em>still</em> passes, because the hop's cost has a factor of
     <i class="v v-F">F</i>·layers-per-stage of compute to hide behind. That headroom
-    is the entire reason pipelining tolerates weak networks.</span></span>
+    is the entire reason pipelining tolerates weak networks. On GPU this check
+    conservatively uses the slower of per-GPU NVLink and aggregate node egress,
+    assuming adjacent stages can cross a node boundary; on TPU it uses ICI. It
+    is a pure-PP boundary model: orthogonal DP/TP sharding would reduce the
+    per-rank activation block and requires an explicit stage layout.</span></span>
   </div>
 
   <p><strong>Why is this difficult/annoying?</strong> You might have noticed in the
@@ -115,21 +119,12 @@ for i in range(num_layers - 1, -1, -1):
   <i class="v v-PP">PP</i> =
   <span class="t-var" data-var="PP" data-min="1" data-max="32" data-scale="lin" data-snap="int" data-fmt="int"></span>-stage
   pipeline, keeping <span class="tm">TPU</span> 0 utilized for at least a larger fraction of the total step
-  time.<span class="sn edit"><button class="sn-ref" aria-label="edit note">Δ</button><span class="sn-body"><span class="sn-tag">edited</span> The
-  chapter reads: <span class="orig">“Typically we try to mitigate this first with
-  microbatching, which sends multiple small batches through the pipeline, keeping
-  <span class="tm">TPU</span> 0 utilized for at least a larger fraction of the total step
-  time.”</span> — reworded to host the scrubbable microbatch and stage
-  counts.<span class="sn-post"><span class="sn-tag">adaptation</span> The
-  chapter never states the bubble-fraction formula; the equation below is ours, for a
-  GPipe-style schedule. (Backward blocks in the schedule are drawn ~2× the forward
-  width — backpropagating through a matmul costs roughly twice the forward FLOPs, one
-  matmul for ∂L/∂x and one for ∂L/∂W — but the bubble fraction counts time and comes
-  out the same either way.)</span></span></span></p>
+  time.</p>
 
   <div class="eq">
     bubble fraction =
     <span class="frac"><span><i class="v v-PP">PP</i> − 1</span><span><i class="v v-M">M<sub>micro</sub></i> + <i class="v v-PP">PP</i> − 1</span></span>
+    <span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> This GPipe-style bubble fraction is added by this edition; the source describes microbatching qualitatively but does not state the formula.</span></span>
   </div>
   <div class="eq-live">right now:
     <span class="t-out" data-expr="PP-1" data-fmt="int"></span> /
@@ -168,13 +163,13 @@ for i in range(num_layers - 1, -1, -1):
       <span class="frac"><span>2<i class="v v-B">B</i><i class="v v-D">D</i></span><span><i class="v v-W">W</i> · <i class="v">N<sub>layers</sub></i></span></span>
     </div>
 
-    <div class="eq-live">right now, over node egress
-      <span class="t-out" data-expr="Wdcn*podSize" data-fmt="bw"></span> with
+    <div class="eq-live">right now, over effective stage-link bandwidth
+      <span class="t-out" data-expr="min(Wici,Wdcn*podSize)" data-fmt="bw"></span> with
       N<sub>layers</sub> = <span class="t-out" data-expr="L" data-fmt="int"></span>:
       per-layer PP comms ≈
-      <span class="t-out" data-expr="1.5*2*B*D/(Wdcn*podSize*L)" data-fmt="time"></span>
+      <span class="t-out" data-expr="1.5*2*B*D/(min(Wici,Wdcn*podSize)*L)" data-fmt="time"></span>
       vs the DP AllReduce's
-      <span class="t-out" data-expr="8*D*E*F/(Wdcn*podSize)" data-fmt="time"></span> per layer
+      <span class="t-out" data-expr="8*D*E*F/Wdp" data-fmt="time"></span> per layer
     </div>
 
     <p>Since we are dividing by <i class="v">N<sub>layers</sub></i>, this is vastly
@@ -216,20 +211,16 @@ for i in range(num_layers - 1, -1, -1):
   <span class="eq-i">W<sub>i</sub> @ ∂L/∂x<sub>i+1</sub></span>, and the
   <span class="eq-i">dW</span> matmul
   <span class="eq-i">∂L/∂x<sub>i+1</sub> @ x<sub>i</sub></span>. Since each of these
-  requires some FLOPs, we can overlap them to fully hide the bubble. Here's our live
-  stand-in for the plot from the recent
+  requires some FLOPs, we can overlap them to fully hide the bubble. Here's <span class="add">our live
+  stand-in for</span> the plot from the recent
   <a href="https://arxiv.org/abs/2412.19437">DeepSeek v3 paper</a> showing their
   "bubble-free" pipeline
-  schedule:<span class="sn edit"><button class="sn-ref" aria-label="edit note">Δ</button><span class="sn-body"><span class="sn-tag">edited</span> The
-  chapter reads: <span class="orig">“Here's a plot from the recent DeepSeek v3 paper
-  showing their "bubble-free" pipeline schedule:”</span> — reworded because our
-  interactive schedule widget stands in for their static
-  figure.<span class="sn-post"><span class="sn-tag">adaptation</span> Toggle
+  schedule:<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Toggle
   the widget's mode: <em>naive</em> is GPipe, <em>1F1B</em> interleaves one forward
   with one backward (same bubble, far less activation memory held live), and
   <em>overlap-dW</em> is the DeepSeek-v3-style schedule — rush every ∂x result down
   the pipeline to unblock neighbors, and drop the deferred ∂W matmuls into slots that
-  would otherwise sit idle.</span></span></span></p>
+  would otherwise sit idle.</span></span></p>
 
   <figure class="breakout">
     <div class="widget" data-widget="pipeline-schedule" data-opts='{}'></div>

@@ -149,7 +149,7 @@ from <a href="#roofline">the primer</a>: a batch-blind comms cost that a big
 enough per-chip batch can always hide.</span></span></p>
 
 <p>As in the table above, let <i class="v v-C">C</i> = per-chip FLOPs,
-<i class="v v-W">W<sub>ici</sub></i> = <strong>bidirectional</strong> network
+<i class="v v-W">W<sub>ici</sub></i> = <span class="t-show inline" data-expr="1-gpu"><strong>bidirectional per-axis</strong> ICI bandwidth</span><span class="t-show inline" data-expr="gpu"><strong>one-way per-GPU</strong> NVLink egress</span>,
 bandwidth, and <i class="v v-DP">DP</i> = number of shards across which the batch
 is partitioned<span class="sn"><button class="sn-ref" aria-label="sidenote">◦</button><span class="sn-body">We
 assume this partitioning is done over an <span class="tm" data-g="NVLink fabric">ICI mesh</span>, so the relevant network
@@ -180,19 +180,23 @@ the total time for the AllReduce in a single layer is</p>
   Note on multiple mesh axes below):
   8 · <span class="t-out" data-expr="D" data-fmt="int"></span> ·
   <span class="t-show inline" data-expr="E>1"><span class="t-out" data-expr="E" data-fmt="int"></span> · </span><span class="t-out" data-expr="F" data-fmt="si"></span> /
-  (<span class="t-out" data-expr="Wici" data-fmt="bw"></span> ·
-  M<sub>DP</sub>) =
-  <span class="t-out" data-expr="8*D*E*F/(Wici*MDP)" data-fmt="time"></span> per
+  <span class="t-out" data-expr="Wdp" data-fmt="bw"></span> effective
+  W<sub>collective</sub> =
+  <span class="t-out" data-expr="8*D*E*F/Wdp" data-fmt="time"></span> per
   layer — and notice: no <i class="v v-B">B</i> anywhere.
 </div>
+<p class="note t-show" data-expr="gpu && DP&gt;podSize"><strong>✦ Adaptation:</strong> This DP collective spans
+  more than one NVLink domain, so the live clock uses scale-out-limited bandwidth
+  <span class="t-out" data-expr="Wdp" data-fmt="bw"></span>, not the faster
+  <span class="t-out" data-expr="Wici" data-fmt="bw"></span> local NVLink egress.</p>
 
 <figure class="breakout">
-  <div class="widget" data-widget="collective" data-opts='{"op":"allreduce","bytesExpr":"2*D*E*F","axisVar":"MDP","label":"AllReduce of one layer&apos;s dW_in"}'></div>
+  <div class="widget" data-widget="collective" data-opts='{"op":"allreduce","bytesExpr":"2*D*E*F","axisVar":"MDP","degreeVar":"DP","label":"AllReduce of one layer&apos;s dW_in"}'></div>
   <figcaption>One of the two per-layer gradient reductions:
   <span class="op op-ar">AllReduce</span> of dW<sub>in</sub>, an array of
   <span class="t-out" data-expr="2*D*E*F" data-fmt="bytes"></span><span class="t-show inline" data-expr="E>1"> (all E experts' gradients travel)</span>. Press play to
   watch the ring pass partial sums; the readout is the
-  2 · bytes / (W<sub>ici</sub> · M<sub>DP</sub>) cost used in the
+  2 · bytes / W<sub>collective</sub> cost used in the
   derivation.</figcaption>
 </figure>
 
@@ -239,10 +243,10 @@ when</p>
 </div>
 <div class="eq-live">right now:
   <span class="t-out" data-expr="B/DP" data-fmt="int"></span> tokens/chip vs a
-  ridge at <span class="t-show inline" data-expr="E>1">(E/k) · </span>C/(W<sub>ici</sub> · M<sub>DP</sub>) =
-  <span class="t-out" data-expr="(E/k)*alpha/MDP" data-fmt="int"></span> →
-  <span class="t-if" data-expr="B/DP &gt; (E/k)*alpha/MDP" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
-  (headroom <span class="t-out" data-expr="(B/DP)/((E/k)*alpha/MDP)" data-fmt="x"></span>)
+  ridge at <span class="t-show inline" data-expr="E>1">(E/k) · </span>C/W<sub>collective</sub> =
+  <span class="t-out" data-expr="(E/k)*alphaDP" data-fmt="int"></span> →
+  <span class="t-if" data-expr="B/DP &gt; (E/k)*alphaDP" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
+  (headroom <span class="t-out" data-expr="(B/DP)/((E/k)*alphaDP)" data-fmt="x"></span>)
 </div>
 
 <p>The upshot is that, to remain compute-bound with data parallelism, we need
@@ -262,7 +266,7 @@ Try: drag <i class="v v-DP">DP</i> =
 up and watch the compute bar in the meter below shrink toward the frozen comms
 bar — every doubling of chips halves T<sub>math</sub> and does nothing to
 T<sub>comms</sub>. The verdict flips the moment the per-chip batch dips below
-<span class="t-out" data-expr="(E/k)*alpha/MDP" data-fmt="int"></span>.<span class="sn-post"><span class="sn-tag">adaptation</span>
+<span class="t-out" data-expr="(E/k)*alphaDP" data-fmt="int"></span>.<span class="sn-post"><span class="sn-tag">adaptation</span>
 With a Mixture-of-Experts model loaded (<i class="v">E</i> &gt; 1 — click e.g.
 DeepSeek-V3 in the intro's frontier-models table), a penalty paragraph from
 Chapter 12 appears just below the meter: the gradients move all
@@ -275,7 +279,7 @@ inflates this per-chip floor by E/k =
   <figcaption>The two clocks for one data-parallel layer, backward pass, to
   scale. The verdict flips exactly where
   <i class="v v-B">B</i>/<i class="v v-DP">DP</i> crosses
-  <i class="v v-C">C</i>/(<i class="v v-W">W<sub>ici</sub></i>·<i class="v v-M">M<sub>DP</sub></i>)<span class="t-show inline" data-expr="E>1"> — times E/k with a MoE loaded, as derived just below</span>.</figcaption>
+  <i class="v v-C">C</i>/<i class="v v-W">W<sub>collective</sub></i><span class="t-show inline" data-expr="E>1"> — times E/k with a MoE loaded, as derived just below</span>.</figcaption>
 </figure>
 
 <div class="t-show" data-expr="E&gt;1">
@@ -289,8 +293,8 @@ inflates this per-chip floor by E/k =
   carries the collective — but the derivation is hardware-neutral: the same E/k
   inflation applies on any fabric with
   <i class="v v-W">W<sub>collective</sub></i> read appropriately (here, over the
-  TPU mesh or GPU node alike, the live check reads
-  <i class="v v-W">W<sub>ici</sub></i>·<i class="v v-M">M<sub>DP</sub></i>).</span></span></h3>
+  TPU mesh or GPU fabric alike, the live check selects the bandwidth that carries
+  the current DP collective).</span></span></h3>
 
   <p>For a Mixture of Experts (MoE) model, where we have <i class="v">E</i> experts
   and <i class="v">k</i> experts per token, this increases to</p>
@@ -320,12 +324,12 @@ inflates this per-chip floor by E/k =
 
   <div class="eq-live">right now: E/k =
     <span class="t-out" data-expr="E/k" data-fmt="x"></span>, so the per-chip floor
-    of <span class="t-out" data-expr="alpha/MDP" data-fmt="int"></span> tokens
-    inflates to (E/k) · C/(W<sub>ici</sub>·M<sub>DP</sub>) =
-    <span class="t-out" data-expr="(E/k)*alpha/MDP" data-fmt="int"></span> — vs the
+    of <span class="t-out" data-expr="alphaDP" data-fmt="int"></span> tokens
+    inflates to (E/k) · C/W<sub>collective</sub> =
+    <span class="t-out" data-expr="(E/k)*alphaDP" data-fmt="int"></span> — vs the
     current B/<i class="v v-DP">DP</i> =
     <span class="t-out" data-expr="B/DP" data-fmt="int"></span> tokens/chip →
-    <span class="t-if" data-expr="B/DP &gt; (E/k)*alpha/MDP" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
+    <span class="t-if" data-expr="B/DP &gt; (E/k)*alphaDP" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
   </div>
 
   <p>For example, the new OpenAI OSS model with <span class="eq-i">k=4</span> and
@@ -334,8 +338,8 @@ inflates this per-chip floor by E/k =
   high number.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
   Kept as the chapter's static example (its 2475 is the H100 cross-node ridge from
   <a href="#gpus">the GPU section</a>). At your current hardware and model, the
-  same computation reads (E/k) · C/(W<sub>ici</sub>·M<sub>DP</sub>) =
-  <span class="t-out" data-expr="(E/k)*alpha/MDP" data-fmt="int"></span> tokens per
+  same computation reads (E/k) · C/W<sub>collective</sub> =
+  <span class="t-out" data-expr="(E/k)*alphaDP" data-fmt="int"></span> tokens per
   chip. Expert parallelism — sharding the experts themselves, so gradients stop
   crossing the whole DP axis — is the standard escape; it gets
   <a href="#expert-parallelism">its own section</a> below.</span></span></p>
@@ -364,7 +368,7 @@ parallelism!</strong></p>
 <div class="preset-row"><span class="preset-label">Try:</span>
   <span class="t-show inline" data-expr="1-gpu"><button class="t-preset" data-set='{"DP":8192,"TP":1,"MDP":3,"MTP":1,"B":7600000}'>8,192 chips (≈ a <span class="tm">pod</span>), 3 axes, 7.6M batch (right at the ridge)</button>
 <button class="t-preset" data-set='{"DP":8192,"TP":1,"MDP":1,"MTP":1,"B":7600000}'>same, but only 1 axis</button></span>
-  <button class="t-preset" data-set='{"DP":512,"TP":8,"MDP":2,"MTP":1,"B":2000000}'>page defaults</button>
+  <button class="t-preset" data-set='{"D":8192,"F":28672,"L":80,"E":1,"k":1,"Sexp":0,"EP":1,"DP":512,"TP":8,"MDP":2,"MTP":1,"B":2000000}'>page defaults</button>
 </div>
 
 <div class="note"><strong>Note [context parallelism]:</strong> Throughout this

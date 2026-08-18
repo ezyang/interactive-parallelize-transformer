@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>How to Parallelize a Transformer for Training — an explorable explanation</title>
-<meta name="description" content="An interactive adaptation of Part 5 of “How to Scale Your Model”: data parallelism, FSDP, tensor parallelism, and pipeline parallelism — with every number, equation, and diagram live.">
+<meta name="description" content="An interactive TPU/GPU adaptation of the JAX Scaling Book training rooflines: DP, FSDP, TP, mixed sharding, pipeline and expert parallelism.">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -12,22 +12,21 @@
 <div class="machine" aria-label="shared model configuration">
   <span class="group"><span class="glabel">Model</span>
     <select id="model-preset" aria-label="model preset">
-      <option value='{"D":8192,"F":28672,"L":80,"E":1,"k":1}'>LLaMA-3 70B</option>
-      <option value='{"D":5120,"F":13824,"L":40,"E":1,"k":1}'>LLaMA-2 13B</option>
-      <option value='{"D":3072,"F":49152,"L":28,"E":1,"k":1}'>Gemma 7B</option>
-      <option value='{"D":7168,"F":2048,"L":61,"E":257,"k":9}'>DeepSeek-V3</option>
-      <option value='{"D":7168,"F":3072,"L":93,"E":898,"k":18}'>Kimi K3</option>
-      <option value='{"D":6144,"F":2048,"L":78,"E":257,"k":9}'>GLM-5.2</option>
-      <option value='{"D":7168,"F":3072,"L":61,"E":385,"k":7}'>DeepSeek-V4-Pro</option>
-      <option value='{"D":8192,"F":2048,"L":92,"E":513,"k":11}'>Qwen3.8-2.4T-A95B</option>
-      <option value='{"D":6144,"F":3072,"L":66,"E":258,"k":8}'>Inkling</option>
-      <option value='{"D":6144,"F":3072,"L":60,"E":129,"k":5}'>MiniMax-M3</option>
+      <option value='{"D":8192,"F":28672,"L":80,"E":1,"k":1,"Sexp":0}'>LLaMA-3 70B</option>
+      <option value='{"D":5120,"F":13824,"L":40,"E":1,"k":1,"Sexp":0}'>LLaMA-2 13B</option>
+      <option value='{"D":3072,"F":24576,"L":28,"E":1,"k":1,"Sexp":0}'>Gemma 7B</option>
+      <option value='{"D":7168,"F":2048,"L":61,"E":257,"k":9,"Sexp":1}'>DeepSeek-V3</option>
+      <option value='{"D":6144,"F":2048,"L":78,"E":257,"k":9,"Sexp":1}'>GLM-5.2</option>
+      <option value='{"D":7168,"F":3072,"L":61,"E":385,"k":7,"Sexp":1}'>DeepSeek-V4-Pro</option>
+      <option value='{"D":8192,"F":2048,"L":92,"E":513,"k":11,"Sexp":1}'>Qwen3.8-2.4T-A95B</option>
+      <option value='{"D":6144,"F":3072,"L":66,"E":258,"k":8,"Sexp":2}'>Inkling</option>
+      <option value='{"D":6144,"F":3072,"L":60,"E":129,"k":5,"Sexp":1}'>MiniMax-M3</option>
       <option value="custom">custom…</option>
     </select>
-    <span class="v v-D">D</span>=<span class="t-var" data-var="D" data-min="512" data-max="65536" data-snap="pow2" data-fmt="int"></span>
-    <span class="v v-F">F</span>=<span class="t-var" data-var="F" data-min="512" data-max="262144" data-scale="log" data-snap="125" data-fmt="si"></span>
+    <span class="v v-D">D</span>=<span class="t-var" data-var="D" data-min="512" data-max="65536" data-snap="int" data-fmt="int"></span>
+    <span class="v v-F">F</span>=<span class="t-var" data-var="F" data-min="512" data-max="262144" data-scale="log" data-snap="int" data-fmt="si"></span>
     <span class="v v-L">L</span>=<span class="t-var" data-var="L" data-min="1" data-max="200" data-scale="lin" data-snap="int" data-fmt="int"></span>
-    <span class="v v-E">E</span>=<span class="t-var" data-var="E" data-min="1" data-max="2048" data-scale="log" data-snap="pow2" data-fmt="int"></span>·<span class="v v-k">k</span>=<span class="t-var" data-var="k" data-min="1" data-max="64" data-scale="lin" data-snap="int" data-fmt="int"></span>
+    <span class="v v-E">E</span>=<span class="t-var" data-var="E" data-min="1" data-max="2048" data-scale="log" data-snap="int" data-fmt="int"></span>·<span class="v v-k">k</span>=<span class="t-var" data-var="k" data-min="1" data-max="64" data-scale="lin" data-snap="int" data-fmt="int"></span><span class="t-show inline" data-expr="E&gt;1">·shared=<span class="t-var" data-var="Sexp" data-min="0" data-max="64" data-scale="lin" data-snap="int" data-fmt="int"></span></span>
   </span>
   <span class="group"><span class="glabel">Hardware</span>
     <select id="hw-preset" aria-label="hardware preset">
@@ -37,6 +36,7 @@
       <option value='{"C":2.25e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.8e11,"podSize":8,"gpu":1,"MDP":1,"MTP":1,"effC":0.69,"effIci":0.82,"effDcn":0.85}'>B200 (8-GPU node)</option>
       <option value='{"C":2.5e15,"Wici":9e11,"Wdcn":5e10,"HBM":1.86e11,"podSize":72,"gpu":1,"MDP":1,"MTP":1,"effC":0.70,"effIci":0.82,"effDcn":0.85}'>GB200 NVL72</option>
       <option value='{"C":2.5e15,"Wici":9e11,"Wdcn":1e11,"HBM":2.88e11,"podSize":72,"gpu":1,"MDP":1,"MTP":1,"effC":0.70,"effIci":0.82,"effDcn":0.85}'>GB300 NVL72</option>
+      <option value='{"C":9.9e14,"Wici":2e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1,"effC":0.73,"effIci":0.80,"effDcn":0.85}'>H800 (DeepSeek)</option>
       <option value="custom">custom…</option>
     </select>
     <span class="v v-C">C</span>=<span class="t-var" data-var="C" data-min="1e13" data-max="5e15" data-scale="log" data-fmt="flops"></span>
@@ -60,7 +60,7 @@
   <a href="#mixed" class="sub">FSDP + Tensor Parallelism</a>
   <a href="#expert-parallelism" class="sub">Expert Parallelism</a>
   <a href="#pipelining" class="sub">Pipelining</a>
-  <a href="#pods" class="sub">Scaling Across Pods</a>
+  <a href="#pods" class="sub t-show" data-expr="1-gpu">Scaling Across Pods</a>
   <a href="#gpus" class="sub">The GPU Network Model</a>
   <a href="#takeaways">Takeaways</a>
   <a href="#problems">Problems to Work</a>
@@ -71,19 +71,19 @@
 <header>
   <h1>How to Parallelize a Transformer for Training</h1>
   <p class="byline">An <em>explorable</em> adaptation of <a href="https://jax-ml.github.io/scaling-book/training/">Part 5 of “How to Scale Your Model”</a> by Jacob Austin, Sholto Douglas, Roy Frostig, Anselm Levskaya, Charlie Chen, Sharad Vikram, Federico Lebron, Peter Choy, Vinay Ramasesh, Albert Webson &amp; Reiner Pope (Google DeepMind).</p>
-  <p class="dek">Here we discuss four main parallelism schemes used during LLM training: data parallelism, fully-sharded data parallelism (FSDP), tensor parallelism, and pipeline parallelism. For each, we calculate at what point we become bottlenecked by communication.</p>
+  <p class="dek">✦ We begin with the original dense TPU schemes — data parallelism, FSDP, tensor parallelism, their mixed form, and pipelining — then splice in the GPU fabric model and expert parallelism for MoEs. For each, we ask when communication becomes the bottleneck. <span style="font-size:0.85em">(This summary is the adaptation’s; the chapter’s own dek described its four dense schemes.)</span></p>
 
   <div class="howto">
     <p style="margin:0 0 .6em"><strong>This page is a working model, not a description of one.</strong>
     Every <span class="k">green number</span> can be dragged left or right, or double-clicked to type an exact value. Every <span class="k">blue number</span> is computed live from the green ones — try it here: drag the batch
     <span class="k"><span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span></span> and watch the per-chip batch
-    <span class="k"><span class="t-out" data-expr="B/DP" data-fmt="int"></span></span> follow (hover any blue number for its formula). All of them share <em>one</em> model of a training run (the strip pinned above), so a change made anywhere propagates everywhere: equations, diagrams, charts, even the answers to the exercises. And scrub without fear —
+    <span class="k"><span class="t-out" data-expr="B/DP" data-fmt="int"></span></span> follow (hover any blue number for its formula). They share one model-and-hardware state, so a change made anywhere propagates everywhere. Parallelism degrees remain scheme-local: the dense mixed group uses <span class="eq-i">N = DP·TP</span>, while EP and PP are modeled in their own sections; composite worked examples state their full product explicitly. And scrub without fear —
     <button class="reset">reset</button> restores every scrubbed number to its default while keeping your model, hardware, and spec/measured picks (it's the same button as in the top bar, which lights up orange whenever a scrub has strayed), any single number reverts on its own when you double-click it and commit it blank, and the browser's back button walks through your earlier configurations.</p>
-    <p style="margin:0"><strong>Whose words are you reading?</strong> The main column is the original chapter's text (© 2022 Maruan Al-Shedivat, © 2025 Google LLC, <a href="LICENSE-scaling-book.txt">MIT license</a>), with a handful of disclosed conventions:
+    <p style="margin:0"><strong>Whose words are you reading?</strong> Source passages come from the original TPU and GPU chapters (© 2022 Maruan Al-Shedivat, © 2025 Google LLC, <a href="LICENSE-scaling-book.txt">MIT license</a>); AI-authored departures are explicitly labeled, with these conventions:
     wherever the chapter printed a fixed number, this page computes it live (these in-place swaps aren't individually marked);
     the interactive figures and their captions replace the original static figures;
-    <span class="k">✦&nbsp;margin notes</span> are this adaptation's voice — written by Fable, the Anthropic model that built this edition — instructions, asides, and the added
-    <a href="#roofline">roofline primer</a>, <a href="#expert-parallelism">expert parallelism</a>, and <a href="#gpus">GPU network</a> sections;
+    <span class="k">✦&nbsp;margin notes</span> and passages explicitly labeled as adaptation are AI-written editorial voice — the initial edition was built by Fable (Anthropic) and this adversarial review and its corrections were performed by OpenAI Codex — including instructions, asides, and the new
+    <a href="#roofline">roofline primer</a>; the <a href="#expert-parallelism">expert parallelism</a> and <a href="#gpus">GPU network</a> sections instead mash up Chapter 12 source passages, with their AI-written connective and adaptation prose labeled by the same convention;
     the chapter's single-letter mesh-axis names are rendered as named parallelism degrees throughout — its X is <span class="k">DP</span>, its Y is <span class="k">TP</span>, the pipelining section's Z is <span class="k">PP</span>, and chapter 12's expert axis Z is <span class="k">EP</span> (a global substitution; each is its own scrubbable variable, adjusted in the text where its section uses it);
     under a GPU preset the hardware vocabulary follows suit — TPU→GPU, ICI→NVLink, DCN→InfiniBand, pod→node, MXU→tensor&nbsp;core — so the article reads as one consistent machine, and any TPU preset restores the chapter's exact words (sentences that deliberately <em>compare</em> the two never swap);
     content woven <span class="add">into the chapter's text by this edition</span> carries a dotted underline like that (and splice edits beside it that standard quotation practice would allow — a bracket or an ellipsis — go unmarked);
@@ -144,7 +144,7 @@ section.</p>
   <thead><tr><th>Notation</th><th>Meaning (model parameters)</th><th>Live value</th></tr></thead>
   <tbody>
     <tr><td><i class="v v-D">D</i></td><td><strong>d</strong><sub>model</sub> (the hidden dimension/residual stream dim)</td>
-      <td><span class="t-var" data-var="D" data-min="512" data-max="65536" data-scale="log" data-snap="pow2" data-fmt="int"></span></td></tr>
+      <td><span class="t-var" data-var="D" data-min="512" data-max="65536" data-scale="log" data-snap="int" data-fmt="int"></span></td></tr>
     <tr><td><i class="v v-F">F</i></td><td><strong>d</strong><sub>ff</sub> (the feed-forward dimension)<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
       <strong>F convention (everywhere):</strong> the width of <em>one
       expert</em> (= d<sub>ff</sub> when dense); math runs through
@@ -155,7 +155,7 @@ section.</p>
       DeepSeek-V3 runs its first three layers dense at a much wider width —
       and this page approximates such models as uniformly MoE. Hover any
       <i class="v v-F">F</i> for the live widths.</span></span></td>
-      <td><span class="t-var" data-var="F" data-min="512" data-max="262144" data-scale="log" data-snap="pow2" data-fmt="int"></span></td></tr>
+      <td><span class="t-var" data-var="F" data-min="512" data-max="262144" data-scale="log" data-snap="int" data-fmt="int"></span></td></tr>
     <tr><td><i class="v v-B">B</i></td><td>Batch dimension (number of tokens in the batch; total, not per-device)</td>
       <td><span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span></td></tr>
     <tr><td>T</td><td>Sequence length</td><td>—</td></tr>
@@ -169,7 +169,7 @@ section.</p>
   <tbody>
     <tr><td><i class="v v-C">C</i></td><td>FLOPS/s per chip</td>
       <td><span class="t-out" data-expr="C" data-fmt="flops"></span></td></tr>
-    <tr><td><i class="v v-W">W</i></td><td>Network bandwidth (bidirectional, often subscripted as e.g. <i class="v v-W">W<sub>ici</sub></i> or <i class="v v-W">W<sub>dcn</sub></i>)</td>
+    <tr><td><i class="v v-W">W</i></td><td>Network bandwidth (<span class="t-show inline" data-expr="1-gpu">bidirectional per TPU mesh axis</span><span class="t-show inline" data-expr="gpu">one-way GPU or node egress</span>, often subscripted as e.g. <i class="v v-W">W<sub>ici</sub></i> or <i class="v v-W">W<sub>dcn</sub></i>)</td>
       <td><span class="t-out" data-expr="Wici" data-fmt="bw"></span> <span class="tm" data-g="gpu">ici</span> · <span class="t-out" data-expr="Wdcn" data-fmt="bw"></span> <span class="tm" data-g="ib">dcn</span></td></tr>
     <tr><td><i class="v v-DP">DP</i></td><td>Number of chips along the data-parallel mesh axis <span class="add">(the chapter's X)</span></td>
       <td><span class="t-out" data-expr="DP" data-fmt="int"></span></td></tr>
@@ -185,66 +185,64 @@ section.</p>
 </table>
 
 <details class="algo" open>
-  <summary>✦ adaptation — this notation, worn by the chapter's dense models and today's frontier open-source ones (click a model to load its shape)</summary>
+  <summary>✦ adaptation — this notation, worn by the chapter's dense models and today's frontier open-source ones (supported rows are clickable)</summary>
   <p>The chapter's examples are dense LLaMA-era models; the frontier has since gone
   Mixture-of-Experts.<span class="sn adapt"><button class="sn-ref" aria-label="source note">✦</button><span class="sn-body">Shapes
   from each model's published <code>config.json</code> on Hugging Face; parameter
   totals from its safetensors metadata. Retrieved August 2026.</span></span>
-  E and k count shared experts, so k·<i class="v v-F">F</i> is the exact
-  activated width; column headers explain each field. The dense models from the
+  E and k count shared experts, so k·<i class="v v-F">F</i> is the activated
+  width for the architectures represented by the live presets; column headers
+  explain each field. The dense models from the
   top-bar dropdown lead the table for contrast, and whichever model is loaded
   shows its row in live green — scrub it right here.</p>
   <div class="tbl-wrap"><table class="tbl tbl-compact sortable">
     <thead><tr>
-      <th data-tip="Click a model name to load its shape (D, F, L) into the page's shared state; click this header to sort alphabetically.">Model</th>
+      <th data-tip="Click a supported model button to load its shape (D, F, L) into the page's shared state; click this header to sort alphabetically.">Model</th>
       <th class="num" data-tip="Total parameter count, read from the model's safetensors metadata on Hugging Face. For MoE models most of these sit in experts that are idle for any given token.">params</th>
       <th class="num" data-tip="d_model — the hidden / residual-stream dimension (config: hidden_size).">D</th>
       <th class="num" data-tip="Per-expert feed-forward width (config: moe_intermediate_size; plain d_ff for a dense model). This is the page's F. FLOPs terms use k·F; weight terms use E·F.">F</th>
       <th class="num" data-tip="Activated feed-forward width per token = k·F — the width a token actually multiplies through, i.e. what the chapter's dense equations call F. Display only; the state stores F and k.">act. k·F</th>
       <th class="num" data-tip="Number of transformer layers (config: num_hidden_layers).">L</th>
-      <th class="num" data-tip="Total experts holding weights per MoE layer, INCLUDING shared experts (one more than the configs' routed count). Weights scale with E; per-token FLOPs don't — that gap is why MoE models make data parallelism harder (comms move all E experts' gradients while FLOPs only touch k).">E</th>
+      <th class="num" data-tip="Total experts holding weights per MoE layer, INCLUDING shared experts (routed count plus shared count). Weights scale with E; per-token FLOPs don't — that gap is why MoE models make data parallelism harder (comms move all E experts' gradients while FLOPs only touch k).">E</th>
       <th class="num" data-tip="Experts activated per token, INCLUDING always-on shared experts — equal to Chapter 12's plain top-k whenever there are no shared experts.">k</th>
     </tr></thead>
     <tbody>
-      <tr><td><button class="t-preset" data-set='{"D":8192,"F":28672,"L":80,"E":1,"k":1}'>LLaMA-3 70B</button> <span style="color:var(--muted);font-size:0.85em">(chapter default)</span></td>
+      <tr><td><button class="t-preset" data-set='{"D":8192,"F":28672,"L":80,"E":1,"k":1,"Sexp":0}'>LLaMA-3 70B</button> <span style="color:var(--muted);font-size:0.85em">(chapter default)</span></td>
         <td class="num">70.6B</td><td class="num" data-live="D">8,192</td><td class="num" data-live="F">28,672</td><td class="num" data-live-expr="k*F">28,672</td><td class="num" data-live="L">80</td><td class="num" data-live="E">1</td><td class="num" data-live="k">1</td></tr>
-      <tr><td><button class="t-preset" data-set='{"D":5120,"F":13824,"L":40,"E":1,"k":1}'>LLaMA-2 13B</button></td>
+      <tr><td><button class="t-preset" data-set='{"D":5120,"F":13824,"L":40,"E":1,"k":1,"Sexp":0}'>LLaMA-2 13B</button></td>
         <td class="num">13.0B</td><td class="num" data-live="D">5,120</td><td class="num" data-live="F">13,824</td><td class="num" data-live-expr="k*F">13,824</td><td class="num" data-live="L">40</td><td class="num" data-live="E">1</td><td class="num" data-live="k">1</td></tr>
-      <tr><td><button class="t-preset" data-set='{"D":3072,"F":49152,"L":28,"E":1,"k":1}'>Gemma 7B</button></td>
-        <td class="num">8.54B</td><td class="num" data-live="D">3,072</td><td class="num" data-live="F">49,152</td><td class="num" data-live-expr="k*F">49,152</td><td class="num" data-live="L">28</td><td class="num" data-live="E">1</td><td class="num" data-live="k">1</td></tr>
-      <tr><td><button class="t-preset" data-set='{"D":7168,"F":2048,"L":61,"E":257,"k":9}'>DeepSeek-V3</button><span class="sn adapt"><button class="sn-ref" aria-label="note">✦</button><span class="sn-body">Counting
+      <tr><td><button class="t-preset" data-set='{"D":3072,"F":24576,"L":28,"E":1,"k":1,"Sexp":0}'>Gemma 7B</button></td>
+        <td class="num">8.54B</td><td class="num" data-live="D">3,072</td><td class="num" data-live="F" data-tip="Gemma config intermediate_size = 24,576. This page follows the chapter's two-main-matmul convention and does not double F for the gated input projection.">24,576</td><td class="num" data-live-expr="k*F">24,576</td><td class="num" data-live="L">28</td><td class="num" data-live="E">1</td><td class="num" data-live="k">1</td></tr>
+      <tr><td><button class="t-preset" data-set='{"D":7168,"F":2048,"L":61,"E":257,"k":9,"Sexp":1}'>DeepSeek-V3</button><span class="sn adapt"><button class="sn-ref" aria-label="note">✦</button><span class="sn-body">Counting
 example: 256 routed + 1 shared expert → E&nbsp;257; top-8 + shared →
 k&nbsp;9. Its first three layers are actually dense (see the F-convention
 note above).</span></span></td>
         <td class="num">685B</td><td class="num" data-live="D">7,168</td><td class="num" data-live="F">2,048</td><td class="num" data-live-expr="k*F">18,432</td><td class="num" data-live="L">61</td><td class="num" data-live="E">257</td><td class="num" data-live="k" data-tip="Routed top-k + the always-on shared expert (the page&#39;s k is their sum; sorting uses the routed count).">8+1</td></tr>
-      <tr><td><button class="t-preset" data-set='{"D":7168,"F":3072,"L":93,"E":898,"k":18}'>Kimi K3</button><span class="sn adapt"><button class="sn-ref" aria-label="note">✦</button><span class="sn-body">K3's
-latent-MoE architecture makes its per-expert F the roughest here: the config
-lists a 3,072 latent width and a 3,584 routed-expert width; we use the
-latent width.</span></span></td>
-        <td class="num">2.78T</td><td class="num" data-live="D">7,168</td><td class="num" data-live="F" data-tip="≈ because K3 is a latent MoE: the config lists a 3,072 latent width and a 3,584 routed-expert width; this page uses the latent width (see the margin note by the model name).">≈3,072</td><td class="num" data-live-expr="k*F" data-tip="Inherits the ≈ from F: this is k × the approximate 3,072 latent width.">≈55,296</td><td class="num" data-live="L">93</td><td class="num" data-live="E">898</td><td class="num" data-live="k" data-tip="Routed top-k + the always-on shared expert (the page&#39;s k is their sum; sorting uses the routed count).">17+1</td></tr>
-      <tr><td><button class="t-preset" data-set='{"D":6144,"F":2048,"L":78,"E":257,"k":9}'>GLM-5.2</button></td>
+      <tr><td>Kimi K3 <span style="color:var(--muted);font-size:0.85em">(reference only)</span><span class="sn adapt"><button class="sn-ref" aria-label="note">✦</button><span class="sn-body">K3 is not a live preset because its routed experts operate after a projection from residual D&nbsp;=&nbsp;7,168 into a 3,584-wide latent space. Its routed-expert intermediate width is F&nbsp;=&nbsp;3,072. The page's single D×F expert model cannot represent both dimensions faithfully.</span></span></td>
+        <td class="num">2.78T</td><td class="num">7,168</td><td class="num" data-tip="Config moe_intermediate_size = 3,072. The separate routed_expert_hidden_size = 3,584 is the latent input/output projection width.">3,072</td><td class="num" data-tip="Arithmetic only: (top-16 routed + 2 shared) × 3,072. This is not loaded into the page because K3's routed matmuls use latent D = 3,584, not residual D = 7,168.">55,296</td><td class="num">93</td><td class="num" data-tip="896 routed experts + 2 shared experts.">896+2</td><td class="num" data-tip="Top-16 routed experts + 2 always-on shared experts.">16+2</td></tr>
+      <tr><td><button class="t-preset" data-set='{"D":6144,"F":2048,"L":78,"E":257,"k":9,"Sexp":1}'>GLM-5.2</button></td>
         <td class="num">753B</td><td class="num" data-live="D">6,144</td><td class="num" data-live="F">2,048</td><td class="num" data-live-expr="k*F">18,432</td><td class="num" data-live="L">78</td><td class="num" data-live="E">257</td><td class="num" data-live="k" data-tip="Routed top-k + the always-on shared expert (the page&#39;s k is their sum; sorting uses the routed count).">8+1</td></tr>
-      <tr><td><button class="t-preset" data-set='{"D":7168,"F":3072,"L":61,"E":385,"k":7}'>DeepSeek-V4-Pro</button></td>
+      <tr><td><button class="t-preset" data-set='{"D":7168,"F":3072,"L":61,"E":385,"k":7,"Sexp":1}'>DeepSeek-V4-Pro</button></td>
         <td class="num">1.60T</td><td class="num" data-live="D">7,168</td><td class="num" data-live="F">3,072</td><td class="num" data-live-expr="k*F">21,504</td><td class="num" data-live="L">61</td><td class="num" data-live="E">385</td><td class="num" data-live="k" data-tip="Routed top-k + the always-on shared expert (the page&#39;s k is their sum; sorting uses the routed count).">6+1</td></tr>
-      <tr><td><button class="t-preset" data-set='{"D":8192,"F":2048,"L":92,"E":513,"k":11}'>Qwen3.8-2.4T-A95B</button></td>
+      <tr><td><button class="t-preset" data-set='{"D":8192,"F":2048,"L":92,"E":513,"k":11,"Sexp":1}'>Qwen3.8-2.4T-A95B</button></td>
         <td class="num">2.45T</td><td class="num" data-live="D">8,192</td><td class="num" data-live="F">2,048</td><td class="num" data-live-expr="k*F">22,528</td><td class="num" data-live="L">92</td><td class="num" data-live="E">513</td><td class="num" data-live="k" data-tip="Routed top-k + the always-on shared expert (the page&#39;s k is their sum; sorting uses the routed count).">10+1</td></tr>
-      <tr><td><button class="t-preset" data-set='{"D":6144,"F":3072,"L":66,"E":258,"k":8}'>Inkling</button></td>
-        <td class="num">952B</td><td class="num" data-live="D">6,144</td><td class="num" data-live="F">3,072</td><td class="num" data-live-expr="k*F">24,576</td><td class="num" data-live="L">66</td><td class="num" data-live="E">258</td><td class="num" data-live="k" data-tip="Routed top-k + the always-on shared expert (the page&#39;s k is their sum; sorting uses the routed count).">7+1</td></tr>
-      <tr><td><button class="t-preset" data-set='{"D":6144,"F":3072,"L":60,"E":129,"k":5}'>MiniMax-M3</button></td>
+      <tr><td><button class="t-preset" data-set='{"D":6144,"F":3072,"L":66,"E":258,"k":8,"Sexp":2}'>Inkling</button></td>
+        <td class="num">952B</td><td class="num" data-live="D">6,144</td><td class="num" data-live="F">3,072</td><td class="num" data-live-expr="k*F">24,576</td><td class="num" data-live="L">66</td><td class="num" data-live="E">258</td><td class="num" data-live="k" data-tip="Top-6 routed experts + 2 always-on shared experts; the page's k is their sum.">6+2</td></tr>
+      <tr><td><button class="t-preset" data-set='{"D":6144,"F":3072,"L":60,"E":129,"k":5,"Sexp":1}'>MiniMax-M3</button></td>
         <td class="num">427B</td><td class="num" data-live="D">6,144</td><td class="num" data-live="F">3,072</td><td class="num" data-live-expr="k*F">15,360</td><td class="num" data-live="L">60</td><td class="num" data-live="E">129</td><td class="num" data-live="k" data-tip="Routed top-k + the always-on shared expert (the page&#39;s k is their sum; sorting uses the routed count).">4+1</td></tr>
     </tbody>
   </table></div>
   <p style="font-family: var(--sans); font-size: 0.8rem; color: var(--muted); margin: 0.6rem 1rem 0.9rem;">
-  Click a model to load its shape (D, F, L, E, k) into the page's shared state
+  Click a supported model to load its shape (D, F, L, E, k) into the page's shared state
   (the top bar follows); click a column header to sort. F = per-expert width;
   act. k·F = activated width per token; E / k = total / activated experts,
-  counting shared. Notice how tight both width bands are: per-expert F is just
-  2,048 or 3,072 across every MoE model here (for the dense rows, the full d_ff
-  is itself the activated width), and the MoE activated width k·F clusters
-  between 15k and 25k even as totals span 427B to 2.78T. Since the
+  counting shared. Across the supported live MoE presets, per-expert F is just
+  2,048 or 3,072, and activated width k·F clusters between 15k and 25k even as
+  total parameter counts span hundreds of billions to trillions. Since the
   tensor-parallelism bound later in this chapter scales with the activated width
-  k·F, that clustering is why the TP limits look so similar across the frontier;
-  K3's k·F ≈ 55k is the outlier that buys headroom.</p>
+  k·F, that clustering is why the TP limits look so similar across the supported
+  frontier presets. K3 is retained as a reference row, but its latent-MoE shape is
+  deliberately not loaded into these formulas.</p>
 </details>
 
 <details class="algo" open id="hardware-table">
@@ -320,7 +318,7 @@ latent width.</span></span></td>
         <td class="num" data-tip-href="https://www.nvidia.com/en-us/data-center/gb300-nvl72/" data-tip-src="NVIDIA GB300 NVL72 page" data-tip="NVIDIA: same fifth-gen NVLink as GB200 — 1.8 TB/s bidirectional per GPU pair (2026-08-17).">900 GB/s</td>
         <td class="num" data-tip-href="https://jax-ml.github.io/scaling-book/gpus/" data-tip-src="scaling-book ch. 12 (GPUs)" data-live="effIci" data-tip="ESTIMATE: inherits H100’s ratio; nothing citable for GB300 collectives as of 2026-08-17.">≈0.82</td>
         <td class="num" data-tip-href="https://www.nvidia.com/en-us/data-center/gb300-nvl72/" data-tip-src="NVIDIA GB300 NVL72 page" data-tip="NVIDIA GB300 NVL72: two ConnectX-8 per Superchip — “800 Gb/s of network connectivity for each GPU” = 100 GB/s (2026-08-17).">100 GB/s</td>
-        <td class="num" data-tip-href="https://www.nvidia.com/en-us/data-center/gb300-nvl72/" data-tip-src="NVIDIA GB300 NVL72 page" data-tip="NVIDIA GB300 NVL72 spec: rack “20 TB” HBM3E ÷ 72 ≈ 288 GB per GPU (2026-08-17).">288 GB</td></tr>
+        <td class="num" data-tip-href="https://www.nvidia.com/en-us/data-center/gb300-nvl72/" data-tip-src="NVIDIA GB300 NVL72 page" data-tip="The preset uses 288 GB per GPU (20.736 TB raw across 72 GPUs); NVIDIA rounds the rack total to “20 TB” HBM3E (2026-08-17).">288 GB</td></tr>
       <tr><td><button class="t-preset" data-set='{"C":9.9e14,"Wici":2e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1,"effC":0.73,"effIci":0.80,"effDcn":0.85}'>H800 (DeepSeek)</button></td>
         <td class="num" data-tip-href="https://www.waredb.com/processor/nvidia-h800" data-tip-src="waredb H800 spec sheet" data-tip="989.43 TFLOP/s dense bf16 — same Hopper tensor cores as H100 (export variant cut NVLink and FP64, not matmul). No vendor datasheet is public; secondary spec databases + the book agree.">989 TF</td>
         <td class="num" data-tip-href="https://arxiv.org/abs/2412.19437" data-tip-src="DeepSeek-V3 report (arXiv)" data-live="effC" data-tip="ESTIMATE: identical silicon to H100’s measured 0.73; DeepSeek-V3’s reported training throughput is consistent.">≈0.73</td>
@@ -353,7 +351,7 @@ uses.</span></span></p>
   (up-projection) and <strong>W<sub>out</sub></strong>: <span class="shape">bf16[F, D]</span>
   (down-projection) with an input <strong>In</strong>: <span class="shape">bf16[B, D]</span>.
   Box edges are drawn to (log) scale from the live dimensions — drag
-  <i class="v v-F">F</i> = <span class="t-var" data-var="F" data-min="512" data-max="262144" data-scale="log" data-snap="pow2" data-fmt="int"></span>
+  <i class="v v-F">F</i> = <span class="t-var" data-var="F" data-min="512" data-max="262144" data-scale="log" data-snap="int" data-fmt="int"></span>
   and watch the matrices fatten. Hover an edge to highlight that dimension
   everywhere on the page.</figcaption>
 </figure>
@@ -463,7 +461,10 @@ answers that question for all four.</span></span></p>
 
 <p class="dek" style="font-size:0.95rem; margin-top:-0.4rem;">✦ This entire section is an addition of this adaptation — the chapter's ideas, our framing. The original text resumes at <a href="#data-parallelism">Data Parallelism</a>.</p>
 
-<p>Everything in this chapter — every scheme, every derivation, every takeaway — is one picture wearing four costumes. Before we meet the costumes, let's get the picture into your fingers.</p>
+<p>The core DP/FSDP/TP rooflines in this chapter are one picture wearing a few
+costumes. Mixed sharding combines those clocks; expert and pipeline parallelism
+add topology- and scheduling-specific activation traffic. Before we meet them,
+let's get the core picture into your fingers.</p>
 
 <p>When a chip works on one layer of our Transformer, two clocks run <em>at the same time</em>:</p>
 
@@ -475,7 +476,11 @@ that's <span class="eq-i"><span class="frac"><span>4 · <i class="v v-B">B</i> �
 
 <p>The <strong>network clock</strong>: whatever bytes this scheme moves have to squeeze through the interconnect at
 <span class="v v-W">W<sub>ici</sub></span> = <span class="t-var" data-var="Wici" data-min="1e10" data-max="2e12" data-scale="log" data-fmt="bw"></span>.
-Crucially, the hardware lets these two clocks <em>overlap</em>: the network can carry bytes while the <span class="tm">MXU</span> multiplies. So a layer doesn't cost the <em>sum</em> of the two times — it costs the <strong>max</strong>. Communication that fits under the compute clock is <em>free</em>. Communication that pokes out past it leaves silicon idle, and that overhang is exactly what "communication-bound" means.</p>
+Crucially, these two clocks <em>can</em> overlap when the implementation schedules
+the collective successfully: the network carries bytes while the <span class="tm">MXU</span>
+multiplies. Under that explicit assumption, a layer costs the <strong>max</strong>,
+not the sum. Communication that fits under the compute clock is hidden;
+communication that pokes out past it leaves silicon idle.</p>
 
 <figure class="breakout">
   <div class="widget" data-widget="overlap-timeline" data-opts='{}'></div>
@@ -484,7 +489,7 @@ Crucially, the hardware lets these two clocks <em>overlap</em>: the network can 
 
 <p class="try">Try: with the toggle on <strong>weights</strong>, drag <span class="v v-B">B</span> = <span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span> down and watch only the <em>compute</em> bar shrink — the network bar doesn't hear the batch size at all, so at some point the comms must poke out. Then flip to <strong>activations</strong> and drag again: now both bars move together, and no amount of batch will save you.</p>
 
-<p>That toggle is the deepest fact in this chapter. Every parallelism scheme is a choice about <em>what travels</em>:</p>
+<p>That toggle captures the core DP/FSDP/TP distinction: <em>what travels?</em></p>
 
 <ul>
 <li>If what travels is <strong>weights</strong> — 2·<i class="v v-D">D</i>·<span class="t-show inline" data-expr="E>1">E·</span><i class="v v-F">F</i> bytes<span class="t-show inline" data-expr="E>1"> (every one of the E experts, active or not)</span>, as in data parallelism and FSDP — the network clock is <em>fixed</em>, while the compute clock scales with your per-chip batch. Big batch ⇒ compute wins ⇒ comms hidden.</li>
@@ -495,10 +500,12 @@ Crucially, the hardware lets these two clocks <em>overlap</em>: the network can 
 
 <div class="eq">
   <span class="eq-i"><span class="frac"><span><i class="v v-B">B</i></span><span><i class="v v-DP">DP</i></span></span>
-  <strong>is your arithmetic intensity against the network</strong>,</span><br>
+  <strong>is the dense-model token proxy for network arithmetic intensity</strong>,</span><br>
+  <span class="t-show inline" data-expr="E>1">and for this equal-width MoE model the proportional intensity is
+  <span class="eq-i">(<i class="v v-B">B</i>/<i class="v v-DP">DP</i>)·k/E</span>,</span><br>
   <span class="eq-i">and the ridge of the roof sits at
-  <span class="t-show inline" data-expr="E>1"><span class="frac"><span>E</span><span>k</span></span> · </span><span class="frac"><span><i class="v v-C">C</i></span><span><i class="v v-W">W</i> · <i class="v v-M">M</i></span></span>
-  = <span class="t-out" data-expr="(E/k)*alpha/MDP" data-fmt="int"></span> tokens per chip</span><span class="t-show inline" data-expr="E>1"> — the E/k factor because a MoE moves all E experts' weights while its FLOPs only touch k</span>.
+  <span class="t-show inline" data-expr="E>1"><span class="frac"><span>E</span><span>k</span></span> · </span><span class="frac"><span><i class="v v-C">C</i></span><span><i class="v v-W">W<sub>collective</sub></i></span></span>
+  = <span class="t-out" data-expr="(E/k)*alphaDP" data-fmt="int"></span> tokens per chip</span><span class="t-show inline" data-expr="E>1"> — the E/k factor because a MoE moves all E experts' weights while its FLOPs only touch k</span>.
 </div>
 
 <figure class="breakout">
@@ -508,7 +515,12 @@ Crucially, the hardware lets these two clocks <em>overlap</em>: the network can 
 
 <p class="try">Try: drag the dot up the slope and feel where the ridge is. Then make the interconnect worse — drag <span class="v v-W">W<sub>ici</sub></span> = <span class="t-var" data-var="Wici" data-min="1e10" data-max="2e12" data-scale="log" data-fmt="bw"></span> down — and watch the ridge slide right: a slower network demands a bigger per-chip batch before it can hide. Faster chips (drag <span class="v v-C">C</span> = <span class="t-var" data-var="C" data-min="1e13" data-max="5e15" data-scale="log" data-fmt="flops"></span> up) do the same thing, which is why each hardware generation makes parallelism <em>harder</em>, not easier.</p>
 
-<div class="takeaway"><strong>The one question:</strong> from here on, every section just asks — <em>do this scheme's bytes fit under this scheme's FLOPs?</em> The answer is always a comparison between a per-chip batch (or a model dimension) and the hardware's operational intensity <span class="eq-i"><i class="v v-C">C</i>/<i class="v v-W">W</i></span> = <span class="t-out" data-expr="alpha" data-fmt="int"></span>. When you see a magic constant like <span class="t-out" data-expr="alpha" data-fmt="int"></span> below, it is this ridge, nothing more.</div>
+<div class="takeaway"><strong>The recurring question:</strong> <em>do this
+scheme's bytes fit under this scheme's FLOPs?</em> For the core rooflines, the
+answer compares a per-chip batch or model dimension with
+<span class="eq-i"><i class="v v-C">C</i>/<i class="v v-W">W<sub>collective</sub></i></span>.
+Expert and pipeline parallelism use the same instinct, with their own traffic and
+scheduling caveats.</div>
 
 </section>
 <!-- ==== sections/02-dp.html ==== -->
@@ -663,7 +675,7 @@ from <a href="#roofline">the primer</a>: a batch-blind comms cost that a big
 enough per-chip batch can always hide.</span></span></p>
 
 <p>As in the table above, let <i class="v v-C">C</i> = per-chip FLOPs,
-<i class="v v-W">W<sub>ici</sub></i> = <strong>bidirectional</strong> network
+<i class="v v-W">W<sub>ici</sub></i> = <span class="t-show inline" data-expr="1-gpu"><strong>bidirectional per-axis</strong> ICI bandwidth</span><span class="t-show inline" data-expr="gpu"><strong>one-way per-GPU</strong> NVLink egress</span>,
 bandwidth, and <i class="v v-DP">DP</i> = number of shards across which the batch
 is partitioned<span class="sn"><button class="sn-ref" aria-label="sidenote">◦</button><span class="sn-body">We
 assume this partitioning is done over an <span class="tm" data-g="NVLink fabric">ICI mesh</span>, so the relevant network
@@ -694,19 +706,23 @@ the total time for the AllReduce in a single layer is</p>
   Note on multiple mesh axes below):
   8 · <span class="t-out" data-expr="D" data-fmt="int"></span> ·
   <span class="t-show inline" data-expr="E>1"><span class="t-out" data-expr="E" data-fmt="int"></span> · </span><span class="t-out" data-expr="F" data-fmt="si"></span> /
-  (<span class="t-out" data-expr="Wici" data-fmt="bw"></span> ·
-  M<sub>DP</sub>) =
-  <span class="t-out" data-expr="8*D*E*F/(Wici*MDP)" data-fmt="time"></span> per
+  <span class="t-out" data-expr="Wdp" data-fmt="bw"></span> effective
+  W<sub>collective</sub> =
+  <span class="t-out" data-expr="8*D*E*F/Wdp" data-fmt="time"></span> per
   layer — and notice: no <i class="v v-B">B</i> anywhere.
 </div>
+<p class="note t-show" data-expr="gpu && DP&gt;podSize"><strong>✦ Adaptation:</strong> This DP collective spans
+  more than one NVLink domain, so the live clock uses scale-out-limited bandwidth
+  <span class="t-out" data-expr="Wdp" data-fmt="bw"></span>, not the faster
+  <span class="t-out" data-expr="Wici" data-fmt="bw"></span> local NVLink egress.</p>
 
 <figure class="breakout">
-  <div class="widget" data-widget="collective" data-opts='{"op":"allreduce","bytesExpr":"2*D*E*F","axisVar":"MDP","label":"AllReduce of one layer&apos;s dW_in"}'></div>
+  <div class="widget" data-widget="collective" data-opts='{"op":"allreduce","bytesExpr":"2*D*E*F","axisVar":"MDP","degreeVar":"DP","label":"AllReduce of one layer&apos;s dW_in"}'></div>
   <figcaption>One of the two per-layer gradient reductions:
   <span class="op op-ar">AllReduce</span> of dW<sub>in</sub>, an array of
   <span class="t-out" data-expr="2*D*E*F" data-fmt="bytes"></span><span class="t-show inline" data-expr="E>1"> (all E experts' gradients travel)</span>. Press play to
   watch the ring pass partial sums; the readout is the
-  2 · bytes / (W<sub>ici</sub> · M<sub>DP</sub>) cost used in the
+  2 · bytes / W<sub>collective</sub> cost used in the
   derivation.</figcaption>
 </figure>
 
@@ -753,10 +769,10 @@ when</p>
 </div>
 <div class="eq-live">right now:
   <span class="t-out" data-expr="B/DP" data-fmt="int"></span> tokens/chip vs a
-  ridge at <span class="t-show inline" data-expr="E>1">(E/k) · </span>C/(W<sub>ici</sub> · M<sub>DP</sub>) =
-  <span class="t-out" data-expr="(E/k)*alpha/MDP" data-fmt="int"></span> →
-  <span class="t-if" data-expr="B/DP &gt; (E/k)*alpha/MDP" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
-  (headroom <span class="t-out" data-expr="(B/DP)/((E/k)*alpha/MDP)" data-fmt="x"></span>)
+  ridge at <span class="t-show inline" data-expr="E>1">(E/k) · </span>C/W<sub>collective</sub> =
+  <span class="t-out" data-expr="(E/k)*alphaDP" data-fmt="int"></span> →
+  <span class="t-if" data-expr="B/DP &gt; (E/k)*alphaDP" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
+  (headroom <span class="t-out" data-expr="(B/DP)/((E/k)*alphaDP)" data-fmt="x"></span>)
 </div>
 
 <p>The upshot is that, to remain compute-bound with data parallelism, we need
@@ -776,7 +792,7 @@ Try: drag <i class="v v-DP">DP</i> =
 up and watch the compute bar in the meter below shrink toward the frozen comms
 bar — every doubling of chips halves T<sub>math</sub> and does nothing to
 T<sub>comms</sub>. The verdict flips the moment the per-chip batch dips below
-<span class="t-out" data-expr="(E/k)*alpha/MDP" data-fmt="int"></span>.<span class="sn-post"><span class="sn-tag">adaptation</span>
+<span class="t-out" data-expr="(E/k)*alphaDP" data-fmt="int"></span>.<span class="sn-post"><span class="sn-tag">adaptation</span>
 With a Mixture-of-Experts model loaded (<i class="v">E</i> &gt; 1 — click e.g.
 DeepSeek-V3 in the intro's frontier-models table), a penalty paragraph from
 Chapter 12 appears just below the meter: the gradients move all
@@ -789,7 +805,7 @@ inflates this per-chip floor by E/k =
   <figcaption>The two clocks for one data-parallel layer, backward pass, to
   scale. The verdict flips exactly where
   <i class="v v-B">B</i>/<i class="v v-DP">DP</i> crosses
-  <i class="v v-C">C</i>/(<i class="v v-W">W<sub>ici</sub></i>·<i class="v v-M">M<sub>DP</sub></i>)<span class="t-show inline" data-expr="E>1"> — times E/k with a MoE loaded, as derived just below</span>.</figcaption>
+  <i class="v v-C">C</i>/<i class="v v-W">W<sub>collective</sub></i><span class="t-show inline" data-expr="E>1"> — times E/k with a MoE loaded, as derived just below</span>.</figcaption>
 </figure>
 
 <div class="t-show" data-expr="E&gt;1">
@@ -803,8 +819,8 @@ inflates this per-chip floor by E/k =
   carries the collective — but the derivation is hardware-neutral: the same E/k
   inflation applies on any fabric with
   <i class="v v-W">W<sub>collective</sub></i> read appropriately (here, over the
-  TPU mesh or GPU node alike, the live check reads
-  <i class="v v-W">W<sub>ici</sub></i>·<i class="v v-M">M<sub>DP</sub></i>).</span></span></h3>
+  TPU mesh or GPU fabric alike, the live check selects the bandwidth that carries
+  the current DP collective).</span></span></h3>
 
   <p>For a Mixture of Experts (MoE) model, where we have <i class="v">E</i> experts
   and <i class="v">k</i> experts per token, this increases to</p>
@@ -834,12 +850,12 @@ inflates this per-chip floor by E/k =
 
   <div class="eq-live">right now: E/k =
     <span class="t-out" data-expr="E/k" data-fmt="x"></span>, so the per-chip floor
-    of <span class="t-out" data-expr="alpha/MDP" data-fmt="int"></span> tokens
-    inflates to (E/k) · C/(W<sub>ici</sub>·M<sub>DP</sub>) =
-    <span class="t-out" data-expr="(E/k)*alpha/MDP" data-fmt="int"></span> — vs the
+    of <span class="t-out" data-expr="alphaDP" data-fmt="int"></span> tokens
+    inflates to (E/k) · C/W<sub>collective</sub> =
+    <span class="t-out" data-expr="(E/k)*alphaDP" data-fmt="int"></span> — vs the
     current B/<i class="v v-DP">DP</i> =
     <span class="t-out" data-expr="B/DP" data-fmt="int"></span> tokens/chip →
-    <span class="t-if" data-expr="B/DP &gt; (E/k)*alpha/MDP" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
+    <span class="t-if" data-expr="B/DP &gt; (E/k)*alphaDP" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
   </div>
 
   <p>For example, the new OpenAI OSS model with <span class="eq-i">k=4</span> and
@@ -848,8 +864,8 @@ inflates this per-chip floor by E/k =
   high number.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
   Kept as the chapter's static example (its 2475 is the H100 cross-node ridge from
   <a href="#gpus">the GPU section</a>). At your current hardware and model, the
-  same computation reads (E/k) · C/(W<sub>ici</sub>·M<sub>DP</sub>) =
-  <span class="t-out" data-expr="(E/k)*alpha/MDP" data-fmt="int"></span> tokens per
+  same computation reads (E/k) · C/W<sub>collective</sub> =
+  <span class="t-out" data-expr="(E/k)*alphaDP" data-fmt="int"></span> tokens per
   chip. Expert parallelism — sharding the experts themselves, so gradients stop
   crossing the whole DP axis — is the standard escape; it gets
   <a href="#expert-parallelism">its own section</a> below.</span></span></p>
@@ -878,7 +894,7 @@ parallelism!</strong></p>
 <div class="preset-row"><span class="preset-label">Try:</span>
   <span class="t-show inline" data-expr="1-gpu"><button class="t-preset" data-set='{"DP":8192,"TP":1,"MDP":3,"MTP":1,"B":7600000}'>8,192 chips (≈ a <span class="tm">pod</span>), 3 axes, 7.6M batch (right at the ridge)</button>
 <button class="t-preset" data-set='{"DP":8192,"TP":1,"MDP":1,"MTP":1,"B":7600000}'>same, but only 1 axis</button></span>
-  <button class="t-preset" data-set='{"DP":512,"TP":8,"MDP":2,"MTP":1,"B":2000000}'>page defaults</button>
+  <button class="t-preset" data-set='{"D":8192,"F":28672,"L":80,"E":1,"k":1,"Sexp":0,"EP":1,"DP":512,"TP":8,"MDP":2,"MTP":1,"B":2000000}'>page defaults</button>
 </div>
 
 <div class="note"><strong>Note [context parallelism]:</strong> Throughout this
@@ -977,7 +993,7 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   weights during the backward pass at no extra cost.</p>
 
   <figure class="breakout">
-    <div class="widget" data-widget="collective" data-opts='{"op":"ar-decomp","bytesExpr":"2*D*E*F","axisVar":"MDP","label":"AllReduce = ReduceScatter + AllGather"}'></div>
+    <div class="widget" data-widget="collective" data-opts='{"op":"ar-decomp","bytesExpr":"2*D*E*F","axisVar":"MDP","degreeVar":"DP","label":"AllReduce = ReduceScatter + AllGather"}'></div>
     <figcaption>The decomposition, animated: the
     <span class="op op-ar">AllReduce</span> that DP runs on each
     2<i class="v v-D">D</i><span class="t-show inline" data-expr="E>1"><i class="v">E</i></span><i class="v v-F">F</i> =
@@ -1120,35 +1136,28 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   <div class="eq-live">right now, per layer, over M<sub>DP</sub> =
     <span class="t-out" data-expr="MDP" data-fmt="int"></span> mesh axes<span class="t-show inline" data-expr="E>1"> (MoE: FLOPs carry k·F, weight comms E·F)</span>:
     T<sub>math</sub> = <span class="t-out" data-expr="4*B*D*k*F/(DP*C)" data-fmt="time"></span> vs
-    T<sub>comms</sub> = <span class="t-out" data-expr="4*D*E*F/(Wici*MDP)" data-fmt="time"></span> →
-    <span class="t-if" data-expr="B/DP > (E/k)*alpha/MDP" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
+    T<sub>comms</sub> = <span class="t-out" data-expr="4*D*E*F/Wdp" data-fmt="time"></span> →
+    <span class="t-if" data-expr="B/DP > (E/k)*alphaDP" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
   </div>
+  <p class="note t-show" data-expr="gpu && DP&gt;podSize"><strong>✦ Adaptation:</strong> This FSDP collective
+  crosses NVLink domains, so W<sub>collective</sub> is the scale-out-limited
+  <span class="t-out" data-expr="Wdp" data-fmt="bw"></span>.</p>
 
   <p>Therefore, as with pure data-parallelism, we are compute bound when
   <span class="eq-i"><i class="v v-B">B</i> / <i class="v v-DP">DP</i> &gt;
-  <i class="v v-C">C</i> / <i class="v v-W">W<sub>ici</sub></i></span>, i.e.
+  <i class="v v-C">C</i> / <i class="v v-W">W<sub>collective</sub></i></span>, i.e.
   when the per-device batch size <i class="v v-B">B</i>/<i class="v v-DP">DP</i>
-  exceeds the "<span class="tm" data-g="NVLink">ICI</span> operational intensity"
-  <i class="v v-C">C</i>/<i class="v v-W">W<sub>ici</sub></i>
+  exceeds the collective fabric's operational intensity
+  <i class="v v-C">C</i>/<i class="v v-W">W<sub>collective</sub></i>
   (<span class="t-out" data-expr="C" data-fmt="e"></span> /
-  <span class="t-out" data-expr="Wici" data-fmt="e"></span> =
-  <span class="t-out" data-expr="alpha" data-fmt="int"></span> for v5p). This
+  <span class="t-out" data-expr="Wdp" data-fmt="e"></span> =
+  <span class="t-out" data-expr="alphaDP" data-fmt="int"></span> right now). This
   is great for us, because it means if our per-device batch size is big enough
   to be compute-bound for pure data-parallelism, we can — without worrying
   about leaving the compute-bound regime — simply upgrade to FSDP, saving
   ourselves a massive amount of parameter and optimizer state memory! Though
   we did have to add communication to the forward pass, this cost is
-  immaterial since it just overlaps with forward-pass
-  FLOPs.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> In
-  the language of <a href="#roofline">the roofline primer</a>: compared to
-  DP's backward pass, FSDP's forward pass has half the traffic on the network
-  clock <em>and</em> half the FLOPs on the compute clock, so both bars shrink
-  together and the ridge doesn't move. The comms fit under the compute exactly
-  when the per-chip batch <i class="v v-B">B</i>/<i class="v v-DP">DP</i> =
-  <span class="t-out" data-expr="B/DP" data-fmt="int"></span> clears the ridge
-  at <span class="t-out" data-expr="(E/k)*alpha/MDP" data-fmt="int"></span> tokens
-  (α = <span class="t-out" data-expr="alpha" data-fmt="int"></span> per mesh
-  axis, over M<sub>DP</sub> axes, ×E/k with a MoE loaded).</span></span></p>
+  immaterial since it just overlaps with forward-pass FLOPs.</p>
 
   <figure class="breakout">
     <div class="widget" data-widget="bound-meter" data-opts='{"scheme":"fsdp"}'></div>
@@ -1158,13 +1167,20 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   </figure>
 
   <div class="takeaway"><strong>Takeaway:</strong> Both FSDP and pure Data
-  Parallelism become bandwidth bound on <span class="tm" data-g="our GPU">TPUv5</span> when the batch size per device
-  is less than <span class="t-out" data-expr="alpha" data-fmt="int"></span> /
-  <i class="v v-M">M<sub>DP</sub></i>, where <i class="v v-M">M<sub>DP</sub></i>
-  is the number of mesh axes.</div>
+  Parallelism become bandwidth bound when the batch size per device is less than
+  <span class="t-out" data-expr="(E/k)*alphaDP" data-fmt="int"></span>
+  tokens on the fabric carrying the collective.<span class="sn edit"><button class="sn-ref" aria-label="edit note">Δ</button><span class="sn-body"><span class="sn-tag">edited</span> The
+  chapter reads: <span class="orig">“Both FSDP and pure Data Parallelism become
+  bandwidth bound on TPUv5 when the batch size per device is less than
+  2550&nbsp;/&nbsp;M<sub>X</sub>, where M<sub>X</sub> is the number of mesh
+  axes.”</span> — generalized so the live number selects the fabric that actually
+  carries the collective (TPU mesh axes or the GPU domain hierarchy) and picks up
+  the MoE E/k factor.</span></span></div>
 
-  <p>For example, DeepSeek-V2 (one of the only recent strong models to release
-  information about its training batch size) used a batch size of ~40M tokens.
+  <div class="t-show" data-expr="1-gpu">
+  <p>For example, borrowing only DeepSeek-V2's reported batch size as a
+  <em>dense-model thought experiment</em> (this calculation does not model its
+  expert parallelism), take a batch size of ~40M tokens.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> This qualifier is added because the source imports DeepSeek-V2's batch into a dense FSDP calculation; it does not model that MoE's expert parallelism.</span></span>
   <strong>This would allow us to scale to roughly
   <span class="t-out" data-expr="4e7*3/alpha" data-fmt="chips"></span> chips,
   or around
@@ -1191,8 +1207,8 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   </div>
 
   <div class="preset-row"><span class="preset-label">Try:</span>
-    <button class="t-preset" data-set='{"B":4e7,"MDP":3}'>DeepSeek-V2: B = 40M, all 3 axes</button>
-    <button class="t-preset" data-set='{"B":2e6,"MDP":2}'>back to page defaults</button>
+    <button class="t-preset" data-set='{"B":4e7,"MDP":3,"E":1,"k":1,"Sexp":0,"EP":1}'>DeepSeek-V2 batch as dense thought experiment: B = 40M, all 3 axes</button>
+    <button class="t-preset" data-set='{"B":2e6,"MDP":2,"E":1,"k":1,"Sexp":0,"EP":1}'>back to page defaults</button>
   </div>
 
   <p>For LLaMA-3 70B, which was trained for approximately
@@ -1230,7 +1246,8 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   </div>
 
   <div class="preset-row"><span class="preset-label">Try:</span>
-    <button class="t-preset" data-set='{"B":16000000,"MDP":3,"MFU":0.5}'>chapter's LLaMA-3 recipe: B = 16M, 3 axes, MFU 50%</button>
+    <button class="t-preset" data-set='{"B":16000000,"MDP":3,"MFU":0.5,"E":1,"k":1,"Sexp":0,"EP":1}'>chapter's LLaMA-3 recipe: B = 16M, 3 axes, MFU 50%</button>
+  </div>
   </div>
 
   <div class="note"><strong>Note on critical batch size</strong>: somewhat
@@ -1240,7 +1257,7 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   for yourself: drag <i class="v v-B">B</i> =
   <span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span>
   down and watch the verdict above flip to
-  <span class="t-if" data-expr="B/DP > (E/k)*alpha/MDP" data-then="…well, it hasn't yet" data-else="communication-bound"></span>.
+  <span class="t-if" data-expr="B/DP > (E/k)*alphaDP" data-then="…well, it hasn't yet" data-else="communication-bound"></span>.
   The hunt described at the end of this note is where the rest of this chapter
   goes.</span></span> Data parallelism and FSDP let us scale to arbitrarily
   many chips so long as we can keep increasing our batch size! However, in
@@ -1278,12 +1295,7 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   the model and move the activations during the layer — this is called
   &ldquo;1D model parallelism&rdquo; or Megatron sharding
   (<a href="https://arxiv.org/abs/1909.08053">Shoeybi et al. 2019</a>). This can
-  unlock a smaller efficient batch size per <span class="tm">pod</span>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
-  This is the flat orange line from <a href="#roofline">the roofline primer</a>:
-  when the <em>activations</em> move, the comms cost scales with the batch just
-  as the compute does, so its efficiency doesn&rsquo;t hinge on the per-chip
-  batch at all — which is exactly why it can unlock a smaller efficient batch
-  per <span class="tm">pod</span>.</span></span> The figure below shows an example of a single matrix
+  unlock a smaller efficient batch size per <span class="tm">pod</span>. The figure below shows an example of a single matrix
   sharded in this way:</p>
 
   <figure class="breakout">
@@ -1392,8 +1404,8 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
     <span class="t-var" data-var="MTP" data-min="1" data-max="3" data-scale="lin" data-snap="int" data-fmt="int"></span>
     <span class="tm" data-g="NVLink">ICI</span> axes carrying <i class="v v-TP">TP</i><span class="t-show inline" data-expr="E>1"> (MoE: the sharded math runs through the activated width k·F)</span>:
     <span class="t-out" data-expr="4*B*D*k*F/(TP*C)" data-fmt="time"></span> of math vs
-    <span class="t-out" data-expr="4*B*D/(Wici*MTP)" data-fmt="time"></span> of comms →
-    <span class="t-if" data-expr="k*F &gt; TP*alpha/MTP" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
+    <span class="t-out" data-expr="4*B*D/Wtp" data-fmt="time"></span> of comms →
+    <span class="t-if" data-expr="k*F &gt; TP*alphaTP" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
   </div>
 
   <p>Noting that we want compute cost to be greater than comms cost, we
@@ -1402,8 +1414,8 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   <em>both</em> clocks, so the batch cancels out of the ratio. This is the flat
   orange line from <a href="#roofline">the primer</a>: tensor parallelism&rsquo;s
   compute-to-comms ratio is pinned at
-  <span class="t-show inline" data-expr="E>1"><i class="v">k</i> · </span><i class="v v-F">F</i> · <i class="v v-M">M<sub>TP</sub></i> / (<i class="v v-TP">TP</i> · α) =
-  <span class="t-out" data-expr="k*F*MTP/(TP*alpha)" data-fmt="x"></span> no matter
+  <span class="t-show inline" data-expr="E>1"><i class="v">k</i> · </span><i class="v v-F">F</i> / (<i class="v v-TP">TP</i> · α<sub>TP</sub>) =
+  <span class="t-out" data-expr="k*F/(TP*alphaTP)" data-fmt="x"></span> no matter
   the batch — a weight-moving scheme can hide its comms behind more tokens per
   chip, but no batch size can raise this bar.</span></span></p>
 
@@ -1425,16 +1437,20 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   </div>
   <div class="eq-live">right now:
     <i class="v v-F">F</i> =
-    <span class="t-var" data-var="F" data-min="1024" data-max="262144" data-scale="log" data-snap="pow2" data-fmt="si"></span>
+    <span class="t-var" data-var="F" data-min="1024" data-max="262144" data-scale="log" data-snap="int" data-fmt="si"></span>
     <span class="t-show inline" data-expr="E>1">(activated width k·F =
     <span class="t-out" data-expr="k*F" data-fmt="si"></span> — the width the
     sharded math actually runs through)</span>
-    vs <i class="v v-TP">TP</i> · α / <i class="v v-M">M<sub>TP</sub></i> =
-    <span class="t-out" data-expr="TP*alpha/MTP" data-fmt="si"></span>
+    vs <i class="v v-TP">TP</i> · α<sub>TP</sub> =
+    <span class="t-out" data-expr="TP*alphaTP" data-fmt="si"></span>
     at <i class="v v-TP">TP</i> =
     <span class="t-var" data-var="TP" data-min="1" data-max="256" data-scale="log" data-snap="pow2" data-fmt="int"></span>
-    → <span class="t-if" data-expr="k*F &gt; TP*alpha/MTP" data-then="under the roof — compute-bound ✓" data-else="over the roof — communication-bound ✗"></span>
+    → <span class="t-if" data-expr="k*F &gt; TP*alphaTP" data-then="under the roof — compute-bound ✓" data-else="over the roof — communication-bound ✗"></span>
   </div>
+  <p class="note t-show" data-expr="gpu && TP&gt;podSize"><strong>✦ Adaptation:</strong> This TP collective
+  spans NVLink domains. The live clock therefore uses
+  <span class="t-out" data-expr="Wtp" data-fmt="bw"></span> scale-out-limited
+  bandwidth rather than the local <span class="t-out" data-expr="Wici" data-fmt="bw"></span>.</p>
 
   <p>Thus for instance, for <span class="tm" data-g="our GPU">TPUv5p</span>,
   <span class="eq-i"><i class="v v-C">C</i>/<i class="v v-W">W<sub>ici</sub></i></span> =
@@ -1443,13 +1459,7 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   <span class="eq-i"><i class="v v-TP">TP</i> &lt; <i class="v v-F">F</i> / <span class="t-out" data-expr="alpha" data-fmt="int"></span></span>.
   When we have multiple <span class="tm" data-g="NVLink">ICI</span> axes, our T<sub>comms</sub> is reduced by a factor of
   <i class="v v-M">M<sub>TP</sub></i>, so we get
-  <span class="eq-i"><i class="v v-TP">TP</i> &lt; <i class="v v-M">M<sub>TP</sub></i> · <i class="v v-F">F</i> / <span class="t-out" data-expr="alpha" data-fmt="int"></span></span>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
-  Try it on the meter below: double <i class="v v-TP">TP</i> =
-  <span class="t-var" data-var="TP" data-min="1" data-max="256" data-scale="log" data-snap="pow2" data-fmt="int"></span>
-  (press ↑ with it focused) and keep doubling until the verdict flips. Then drag
-  <i class="v v-B">B</i> =
-  <span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span>
-  as hard as you like and confirm the batch is powerless to flip it back.</span></span></p>
+  <span class="eq-i"><i class="v v-TP">TP</i> &lt; <i class="v v-M">M<sub>TP</sub></i> · <i class="v v-F">F</i> / <span class="t-out" data-expr="alpha" data-fmt="int"></span></span>.</p>
 
   <figure class="breakout">
     <div class="widget" data-widget="bound-meter" data-opts='{"scheme":"tp"}'></div>
@@ -1462,12 +1472,13 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
 
   <div class="takeaway"><strong>Takeaway:</strong> Tensor Parallelism becomes
   communication bound when
-  <span class="eq-i"><i class="v v-TP">TP</i> &gt; <i class="v v-M">M<sub>TP</sub></i> · <i class="v v-F">F</i> / <span class="t-out" data-expr="alpha" data-fmt="int"></span></span>.
+  <span class="eq-i"><i class="v v-TP">TP</i> · α<sub>TP</sub> &gt; <i class="v v-F">F</i></span>
+  (or <i class="v">k</i>·<i class="v v-F">F</i> for the page's equal-width MoE approximation).
   For most models this is between 8 and 16-way tensor
   parallelism.<span class="t-show inline" data-expr="gpu"><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
-  On GPUs the same bound holds with <i class="v v-W">W</i> read as the per-GPU
-  NVLink egress bandwidth, which generally pins tensor parallelism inside a
-  single node (<i class="v v-TP">TP</i> ≤ 8) or at most two (<a href="#gpus">details</a>).</span></span></span></div>
+  On GPUs the live α<sub>TP</sub> changes when TP leaves the selected machine's
+  NVLink domain (8 GPUs on H100/B200, 72 on NVL72), which generally pins TP
+  inside one domain or at most two (<a href="#gpus">details</a>).</span></span></span></div>
 
   <p><strong>Note that this doesn't depend on the precision of the
   computation</strong>, since e.g. for int8, on <span class="tm" data-g="our GPU">TPUv5p</span>,
@@ -1485,17 +1496,18 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   scrub <i class="v v-C">C</i> =
   <span class="t-var" data-var="C" data-min="1e13" data-max="5e15" data-scale="log" data-fmt="flops"></span>:
   faster chips shrink <i class="v v-TP">TP<sub>max</sub></i> =
-  <span class="t-out" data-expr="MTP*k*F/alpha" data-fmt="sig3"></span>, which is
+  <span class="t-out" data-expr="k*F/alphaTP" data-fmt="sig3"></span> on the
+  fabric carrying the current TP collective, which is
   why each hardware generation makes tensor parallelism a little harder to
   hide.</span></span></p>
 
   <div class="preset-row"><span class="preset-label">Load:</span>
     <button class="t-preset" data-set='{"D":8192,"F":28672,"L":80,"E":1,"k":1}'>LLaMA-3 70B</button>
-    <button class="t-preset" data-set='{"D":3072,"F":49152,"L":28,"E":1,"k":1}'>Gemma 7B</button>
-    <button class="t-preset" data-set='{"D":8192,"F":28672,"L":80,"TP":8}'>chapter defaults</button>
+    <button class="t-preset" data-set='{"D":3072,"F":24576,"L":28,"E":1,"k":1}'>Gemma 7B</button>
+    <button class="t-preset" data-set='{"D":8192,"F":28672,"L":80,"E":1,"k":1,"Sexp":0,"EP":1,"TP":8}'>chapter defaults</button>
   </div>
 
-  <ul>
+  <ul class="t-show" data-expr="1-gpu">
     <li>On TPUv5p with LLaMA 3-70B with <span class="eq-i">D = 8192</span>,
     <span class="eq-i">F ≈ 30,000</span>, we can comfortably do 8-way tensor
     parallelism, but will be communication bound on 16 way tensor parallelism.
@@ -1510,17 +1522,19 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
     <span class="t-if" data-expr="28672 &gt; 16*alpha/MTP" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>,
     and the required F for 8-way sharding is 8 · α / <i class="v v-M">M<sub>TP</sub></i> =
     <span class="t-out" data-expr="8*alpha/MTP" data-fmt="si"></span>.</span></span></li>
-    <li>For Gemma 7B, <span class="eq-i">F ≈ 50k</span>, so we become
-    communication bound with 19-way tensor parallelism. That means we could
-    likely do 16-way and still see good
-    performance.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
-    Check it live at the current hardware: with Gemma 7B's F = 49,152 pinned
-    (its GeGLU feedforward folds two fused gating up-projections into what we
-    count as <i class="v v-F">F</i> — hence much larger than the usual 4·D),
-    <i class="v v-TP">TP<sub>max</sub></i> =
-    <span class="t-out" data-expr="MTP*49152/alpha" data-fmt="sig3"></span>-way,
+    <li>For Gemma 7B, this page's ignore-gating convention uses the config's
+    <span class="eq-i">F = 24,576</span>. On TPU v5p that gives
+    <i class="v v-TP">TP<sub>max</sub></i> ≈ 9.64, so 8-way fits but 16-way is
+    communication-bound.<span class="sn edit"><button class="sn-ref" aria-label="edit note">Δ</button><span class="sn-body"><span class="sn-tag">edited</span>
+    The chapter reads <span class="orig">“For Gemma 7B, F ≈ 50k, so we become
+    communication bound with 19-way tensor parallelism. That means we could likely
+    do 16-way and still see good performance.”</span> Its ≈50k adds Gemma's two
+    gated input projections together, which is inconsistent with this chapter's
+    two-main-matmul model. At the currently selected TPU, the corrected
+    <i class="v v-TP">TP<sub>max</sub></i> is
+    <span class="t-out" data-expr="24576/alphaTP" data-fmt="sig3"></span>-way,
     and 16-way is
-    <span class="t-if" data-expr="49152 &gt; 16*alpha/MTP" data-then="still under the roof ✓" data-else="over the roof ✗"></span>.</span></span></li>
+    <span class="t-if" data-expr="24576 &gt; 16*alphaTP" data-then="still under the roof ✓" data-else="over the roof ✗"></span>.</span></span></li>
   </ul>
 
 </section>
@@ -1636,7 +1650,7 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   even more. We can calculate the optimal amount of FSDP and TP in the same way
   as above:</p>
 
-  <p>Let <i class="v v-DP">DP</i> be the number of chips dedicated to FSDP and
+  <p><strong>TPU closed form.</strong> Let <i class="v v-DP">DP</i> be the number of chips dedicated to FSDP and
   <i class="v v-TP">TP</i> be the number of chips dedicated to tensor
   parallelism. Let <i class="v v-N">N</i> be the total number of chips in our
   slice with <span class="eq-i"><i class="v v-N">N</i> = <i class="v v-DP">DP</i><i class="v v-TP">TP</i></span>.
@@ -1670,10 +1684,35 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
     <i class="v v-M">M<sub>TP</sub></i> =
     <span class="t-var" data-var="MTP" data-min="1" data-max="3" data-scale="lin" data-snap="int" data-fmt="int"></span>
     carrying TP<span class="t-show inline" data-expr="E>1"> (MoE: the weight gathers carry E·F, the FLOPs k·F)</span>:
-    T<sub>FSDP comms</sub> = <span class="t-out" data-expr="4*D*E*F/(TP*Wici*MDP)" data-fmt="time"></span>,
-    T<sub>TP comms</sub> = <span class="t-out" data-expr="4*B*D/(DP*Wici*MTP)" data-fmt="time"></span>,
-    T<sub>math</sub> = <span class="t-out" data-expr="4*B*D*k*F/(DP*TP*C)" data-fmt="time"></span> per layer
+    T<sub>FSDP comms</sub> = <span class="t-out" data-expr="mixF" data-fmt="time"></span>,
+    T<sub>TP comms</sub> = <span class="t-out" data-expr="mixTP" data-fmt="time"></span>,
+    T<sub>math</sub> = <span class="t-out" data-expr="mixMath" data-fmt="time"></span> per layer
   </div>
+
+  <p class="note t-show" data-expr="gpu"><strong>✦ Adaptation — GPU topology correction:</strong>
+  the TPU equations immediately above are not valid GPU substitutions. An outer
+  FSDP reduction does not become TP times faster while TP remains inside one
+  NVLink domain; the scale-out link still carries the reduction. The live clocks,
+  meter, and explorers use Chapter 12's
+  <span class="eq-i">max(T<sub>domain</sub>, T<sub>scale-out</sub>)</span> model.
+  In the equations below, bytes = 4·D·E·F and G is the selected NVLink-domain size.
+  The closed-form optimum below is therefore shown only on TPU; on GPU the
+  explorer finds the topology-aware minimum directly.</p>
+
+  <div class="t-show" data-expr="gpu">
+    <div class="eq">
+      T<sub>domain</sub> =
+      <span class="frac"><span>bytes</span><span><i class="v v-W">W<sub>GPU egress</sub></i></span></span>
+      · <span class="frac"><span>1</span><span>min(<i class="v v-TP">TP</i>, G)</span></span>
+      &nbsp;&nbsp;&nbsp;
+      T<sub>scale-out</sub> =
+      <span class="frac"><span>bytes</span><span><i class="v v-W">W<sub>domain egress</sub></i></span></span>
+      · <span class="frac"><span>G</span><span>max(G, <i class="v v-TP">TP</i>)</span></span>
+    </div>
+    <div class="eq">T<sub>FSDP comms</sub> = max(T<sub>domain</sub>, T<sub>scale-out</sub>)</div>
+  </div>
+
+  <div class="t-show" data-expr="1-gpu">
 
   <p>To simplify the analysis, we make two assumptions: first, we allow
   <i class="v v-DP">DP</i> and <i class="v v-TP">TP</i> to take on non-integer
@@ -1745,8 +1784,8 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   whole page.</span></span></p>
 
   <div class="preset-row"><span class="preset-label">Try:</span>
-    <button class="t-preset" data-set='{"DP":16,"TP":4,"B":48000,"F":32768,"MDP":2,"MTP":1}'>chapter example: 4×4×4 cube, B=48k, F=32,768</button>
-    <button class="t-preset" data-set='{"DP":512,"TP":8,"B":2000000,"F":28672,"MDP":2,"MTP":1}'>back to page defaults</button>
+    <button class="t-preset" data-set='{"DP":16,"TP":4,"B":48000,"F":32768,"MDP":2,"MTP":1,"E":1,"k":1,"Sexp":0,"EP":1}'>chapter example: 4×4×4 cube, B=48k, F=32,768</button>
+    <button class="t-preset" data-set='{"DP":512,"TP":8,"B":2000000,"F":28672,"MDP":2,"MTP":1,"E":1,"k":1,"Sexp":0,"EP":1}'>back to page defaults</button>
   </div>
 
   <div class="takeaway"><strong>Takeaway:</strong> in general, during training,
@@ -1761,8 +1800,9 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   <span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span>
   and watch the valley migrate right like √<i class="v v-B">B</i>, or widen
   <i class="v v-F">F</i> =
-  <span class="t-var" data-var="F" data-min="1024" data-max="262144" data-scale="log" data-snap="pow2" data-fmt="int"></span>
+  <span class="t-var" data-var="F" data-min="1024" data-max="262144" data-scale="log" data-snap="int" data-fmt="int"></span>
   and watch it slide left.</span></span></div>
+  </div>
 
   <figure class="breakout">
     <div class="widget" data-widget="xy-explorer" data-opts='{}'></div>
@@ -1774,10 +1814,13 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
     T<sub>math</sub>, and wherever the envelope dips below it the layer is
     compute-bound. Drag the marker: it sets <i class="v v-DP">DP</i> (and
     <i class="v v-TP">TP</i> = <i class="v v-N">N</i>/<i class="v v-DP">DP</i>) for
-    the whole page. The dotted drop-line marks <i class="v v-DP">DP<sub>opt</sub></i> =
-    <span class="t-out" data-expr="sqrt(B*MDP*N/(E*F*MTP))" data-fmt="sig3"></span>.</figcaption>
+    the whole page. The dotted drop-line marks
+    <span class="t-show inline" data-expr="1-gpu">the TPU closed-form
+    <i class="v v-DP">DP<sub>opt</sub></i> =
+    <span class="t-out" data-expr="max(1,min(N,sqrt(B*MDP*N/(E*F*MTP))))" data-fmt="sig3"></span></span><span class="t-show inline" data-expr="gpu">the numerically best constrained continuous split under the GPU hierarchy</span>.</figcaption>
   </figure>
 
+  <div class="t-show" data-expr="1-gpu">
   <p>Now let's return to the question we've been asking of all our parallelism
   strategies: <strong>under what conditions will we be
   compute-bound?</strong> Since we can overlap FLOPs and comms, we are
@@ -1881,6 +1924,7 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   threshold — the flip lands right at the ridge (assuming
   <i class="v v-DP">DP</i> is near <i class="v v-DP">DP<sub>opt</sub></i>; if it's far off, the flip
   comes sooner).</span></span></p>
+  </div>
 
   <figure class="breakout">
     <div class="widget" data-widget="bound-meter" data-opts='{"scheme":"mixed"}'></div>
@@ -1892,13 +1936,14 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
     <span class="t-out" data-expr="TP" data-fmt="int"></span>.</figcaption>
   </figure>
 
-  <div class="takeaway"><strong>Takeaway:</strong> combining tensor parallelism
+  <div class="takeaway t-show" data-expr="1-gpu"><strong>Takeaway:</strong> combining tensor parallelism
   with FSDP allows us to drop to a
   <i class="v v-B">B</i>/<i class="v v-N">N</i> of
   <span class="eq-i"><span class="frac"><span>2550<sup>2</sup></span><span>2<i class="v v-F">F</i></span></span></span>.
   This lets us handle a batch of as little as 100 per chip, which is roughly a
   factor of eight smaller than we could achieve with just FSDP.</div>
 
+  <div class="t-show" data-expr="1-gpu">
   <p>Below we plot the ratio of FLOPs to comms time for mixed FSDP + TP,
   comparing it both to only tensor parallelism (TP) and only data parallelism
   (FSDP), on a representative 4x4x4 chip array. While pure FSDP parallelism
@@ -1926,16 +1971,13 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   batch size where this is lower than all comms costs is strictly comms bound.
   You'll notice the black curve intersects the aqua curve at about
   <span class="eq-i">4e5</span>, as
-  predicted.<span class="sn edit"><button class="sn-ref" aria-label="edit note">Δ</button><span class="sn-body"><span class="sn-tag">edited</span> The
-  chapter reads: <span class="orig">“You'll notice the black curve intersects
-  the green curve at about 4e5, as predicted.”</span> — the mixed FSDP + TP
-  curve is aqua in this page's palette, so the color word was
-  changed.<span class="sn-post"><span class="sn-tag">adaptation</span>
+  predicted.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
   On the live chart that crossing sits at
   <i class="v v-B">B</i> = <i class="v v-N">N</i>·α²<span class="t-show inline" data-expr="E>1">·<i class="v">E</i></span>/(<i class="v v-M">M<sub>DP</sub></i>·<i class="v v-M">M<sub>TP</sub></i>·<span class="t-show inline" data-expr="E>1"><i class="v">k</i>²·</span><i class="v v-F">F</i>) =
   <span class="t-out" data-expr="N*alpha*alpha*E/(MDP*MTP*k*k*F)" data-fmt="tokens"></span>
   total tokens; the chapter's 4e5 is this same formula evaluated at its
-  16x16x16, F ≈ 30k scenario.</span></span></span></p>
+  16x16x16, F ≈ 30k scenario.</span></span></p>
+  </div>
 
   <p>Here's an interactive animation to play with this, showing the total
   compute time and communication time for different batch sizes:</p>
@@ -1947,8 +1989,8 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
     chips. Dashed ink: T<sub>math</sub>, the matmul FLOPs — any comms curve
     sitting above it means that scheme is comms-bound at that batch. Blue:
     FSDP-only comms, flat, because weights don't hear the batch size. Orange:
-    TP-only comms, rising in lock-step with T<sub>math</sub>. Aqua: optimally
-    mixed FSDP + TP, rising like √<i class="v v-B">B</i>. Drag the vertical
+    TP-only comms, rising in lock-step with T<sub>math</sub>. Aqua: the best
+    constrained continuous mixed FSDP + TP split<span class="t-show inline" data-expr="1-gpu">, rising like √<i class="v v-B">B</i></span><span class="t-show inline" data-expr="gpu"> under the piecewise GPU hierarchy</span>. Drag the vertical
     marker to set <i class="v v-B">B</i>; flip the view toggle between absolute
     times and the T<sub>math</sub>/T<sub>comms</sub> ratio, where any curve
     above 1 is compute-bound.</figcaption>
@@ -1988,37 +2030,38 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   <a href="#gpus">the GPU network model</a> below). One naming change
   throughout: Chapter 12 calls the expert-parallel axis <em>Z</em>; this
   edition names every parallelism degree after its scheme, so that axis is
-  rendered <i class="v v-EP">EP</i> here.</p>
+  rendered <i class="v v-EP">EP</i> here. The routed/shared-expert split and the
+  hardware-domain generalization of the H100-specific formula are AI-written
+  adaptation material, labeled again at the live estimate.</p>
 
   <div class="try t-show" data-expr="E==1">You currently have a <strong>dense</strong>
   model loaded (<i class="v">E</i> = <span class="t-out" data-expr="E" data-fmt="int"></span>,
   <i class="v">k</i> = <span class="t-out" data-expr="k" data-fmt="int"></span>), so
-  every MoE quantity in this section reduces to its dense value and the verdicts
-  below are degenerate. Click a Mixture-of-Experts preset — here, in the intro's
+  expert routing is not applicable. Click a Mixture-of-Experts preset — here, in the intro's
   frontier-models table, or in the top bar — to make this section live:
-  <button class="t-preset" data-set='{"D":7168,"F":2048,"L":61,"E":257,"k":9,"EP":64}'>DeepSeek-V3 (E=257, k=9, 64-way EP)</button>
-  <button class="t-preset" data-set='{"D":7168,"F":3072,"L":93,"E":898,"k":18,"EP":16}'>Kimi K3 (E=898, k=18)</button>
+  <button class="t-preset" data-set='{"D":7168,"F":2048,"L":61,"E":257,"k":9,"Sexp":1,"EP":64}'>DeepSeek-V3 (256 routed + 1 shared, 64-way EP)</button>
   </div>
 
   <div class="try t-show" data-expr="1-gpu">You are on a <strong>TPU</strong> hardware
-  preset. This section's AllToAll cost model is Chapter 12's switched-fabric model, so
-  its live numbers read your TPU's DCN as the cross-"node" network — click a GPU preset
-  in the top bar (or in <a href="#gpus">the GPU section</a>) to see the chapter's
-  published H100 numbers.</div>
+  preset. This section's AllToAll cost model is Chapter 12's switched GPU fabric,
+  so its live verdicts are hidden until you select a GPU preset in the top bar
+  (or in <a href="#gpus">the GPU section</a>).</div>
 
   <p>As we've already noted above, Mixture of Expert (MoE) models come with
   <i class="v">E</i> times more model weights with only <i class="v">k</i> times
   more FLOPs, making data parallelism significantly
   harder.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> In
   Chapter 12 "noted above" pointed at its Data Parallelism section; on this page that
-  passage lives at the end of <a href="#data-parallelism">Data Parallelism</a> (visible
-  with a MoE model loaded). Live here: <i class="v">E</i> =
-  <span class="t-var" data-var="E" data-min="1" data-max="2048" data-scale="log" data-snap="pow2" data-fmt="int"></span>
-  experts (counting shared), <i class="v">k</i> =
-  <span class="t-var" data-var="k" data-min="1" data-max="64" data-scale="lin" data-snap="int" data-fmt="int"></span>
-  activated per token — a weight-to-FLOPs ratio of E/k =
-  <span class="t-out" data-expr="E/k" data-fmt="x"></span>.</span></span> We can
-  mitigate this somewhat by sharding our weights along the expert dimension, i.e.
+  passage lives at the end of <a href="#data-parallelism">Data Parallelism</a>.</span></span>
+  This page's <i class="v">E</i> and <i class="v">k</i> count all experts, including
+  always-on shared experts. Expert routing instead uses
+  <span class="eq-i">E<sub>r</sub> = E − s</span> routed experts and
+  <span class="eq-i">k<sub>r</sub> = k − s</span> routed selections, where
+  <i>s</i> = <span class="t-var" data-var="Sexp" data-min="0" data-max="64" data-scale="lin" data-snap="int" data-fmt="int"></span>
+  shared experts. Right now, <i>E</i><sub>r</sub> =
+  <span class="t-out" data-expr="E-Sexp" data-fmt="int"></span> and
+  <i>k</i><sub>r</sub> = <span class="t-out" data-expr="k-Sexp" data-fmt="int"></span>.
+  We can mitigate the routed weight cost by sharding along the expert dimension, i.e.
   <span class="shape">W<sub>in</sub>[E<sub>EP</sub>, D, F]</span>. To do
   the MLP block, we need to introduce 2x
   <span class="op op-ag">AllToAll</span> to send our activations to the
@@ -2028,9 +2071,9 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   all-to-all connectivity, which makes AllToAlls, well, quite easy: each GPU just
   sends directly to the destination. For Mixture of Expert (MoE) models, we
   frequently want to do a <em>sparse or ragged AllToAll</em>, where we guarantee at
-  most <i class="v">k</i> of <i class="v v-N">N</i> shards on the output dimension
+  most <i>k</i><sub>r</sub> of <i class="v v-N">N</i> shards on the output dimension
   are non-zero; the cost is reduced by
-  <span class="eq-i">k/N</span>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Condensed
+  <span class="eq-i">k<sub>r</sub>/N</span>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Condensed
   from Chapter 12's intra-node collectives discussion (two paragraphs on dense and
   ragged AllToAlls, with the exact expected-occupancy footnote) — see Chapter 12 for
   the full derivation. The takeaway below is carried verbatim.</span></span></p>
@@ -2039,17 +2082,17 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   array of B bytes on GPU within a single node is about
   <span class="eq-i">T<sub>comms</sub> = (B · (8 − 1)) / (8² · <i class="v v-W">W<sub>GPU egress</sub></i>)
   ≈ B / (8 · <i class="v v-W">W<sub>GPU egress</sub></i>)</span>. For a ragged
-  (top-<i class="v">k</i>) AllToAll, this is decreased further to
-  <span class="eq-i">(B · <i class="v">k</i>) / (64 · <i class="v v-W">W<sub>GPU egress</sub></i>)</span>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> On
+  (top-<i>k</i><sub>r</sub>) AllToAll, this is decreased further to
+  <span class="eq-i">(B · <i>k</i><sub>r</sub>) / (64 · <i class="v v-W">W<sub>GPU egress</sub></i>)</span>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> On
     a TPU mesh the equivalent dense cost is ≈ bytes/(4·<i class="v v-W">W</i>).
     Chapter 12 makes the comparison itself: <span class="orig">“Compare this to a
     TPU, where the cost is $B / (4W)$. Thus, within a single node, we get a 2X
     theoretical speedup in runtime ($B / 4W$ vs. $B / 8W$).”</span></span></span></div>
 
-  <p>As noted above, the cost of this
-  AllToAll<sub>EP→k</sub>(<span class="shape">[B, D, k]</span>) if it
+  <p>For the eight-GPU H100 node used in Chapter 12, the cost of this
+  AllToAll<sub>EP→k<sub>r</sub></sub>(<span class="shape">[B, D, k]</span>) if it
   spans multiple nodes is roughly
-  <span class="eq-i">T<sub>AllToAll</sub> = 2 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · (EP − 8)/(<i class="v v-W">W</i> · EP) · min(8 · <i class="v">k</i> / EP, 1)</span>,
+  <span class="eq-i">T<sub>AllToAll</sub> = 2 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · (EP − 8)/(<i class="v v-W">W</i> · EP) · min(8 · <i>k</i><sub>r</sub> / EP, 1)</span>,
   so for pure expert parallelism we
   need<span class="sn edit"><button class="sn-ref" aria-label="edit note">Δ</button><span class="sn-body"><span class="sn-tag">edited</span> The
   chapter reads: <span class="orig">“the cost of this AllToAll<sub>Z-&gt;k</sub>([B, D, k])
@@ -2058,14 +2101,15 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   <i class="v v-W">W</i>, evidently a typo (the chapter's own displayed
   T<sub>comms</sub> just below includes it); restored here.</span></span></p>
 
-  <div class="eq">
+  <div class="eq t-show" data-expr="Sexp==0">
     T<sub>math</sub> =
     <span class="frac"><span>4 · <i class="v v-B">B</i> · <i class="v">k</i> · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span>EP · <i class="v v-C">C</i><span class="sn-post"><span class="sn-tag">adaptation</span> Chapter
-    12's expression verbatim — its per-expert <i class="v v-F">F</i> is exactly
-    <a href="#scaling">this page's convention</a>.</span></span></span>
+    12's expression verbatim for a routed-only MoE. The live expression below
+    keeps shared experts in total activated compute while excluding them from
+    routing traffic.</span></span></span>
   </div>
 
-  <div class="eq">
+  <div class="eq t-show" data-expr="Sexp==0">
     T<sub>comms</sub> =
     <span class="frac"><span>4 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · (EP − 8)</span><span><i class="v v-W">W</i> · EP</span></span>
     · min<span class="eq-i">(
@@ -2073,50 +2117,51 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
     )</span>
   </div>
 
-  <div class="eq-live">right now, with
+  <div class="eq-live t-show" data-expr="gpu">right now, with
     <i class="v v-EP">EP</i> =
     <span class="t-var" data-var="EP" data-min="1" data-max="1024" data-scale="log" data-snap="pow2" data-fmt="int"></span>-way
-    expert parallelism over node egress <i class="v v-W">W</i> =
-    <span class="t-out" data-expr="Wdcn*podSize" data-fmt="bw"></span>:
+    expert parallelism and a fast-fabric domain of
+    <span class="t-out" data-expr="podSize" data-fmt="int"></span> GPUs:
     T<sub>math</sub> =
     <span class="t-out" data-expr="4*B*k*D*F/(EP*C)" data-fmt="time"></span> vs
     T<sub>comms</sub> =
-    <span class="t-out" data-expr="4*B*D*(max(EP-8,0)/EP)*min(8*k/EP,1)/(Wdcn*podSize)" data-fmt="time"></span>
+    <span class="t-out" data-expr="EP&lt;=podSize ? 4*B*D*((EP-1)/EP)*min((k-Sexp)/EP,1)/Wici : max(4*B*D*((podSize-1)/podSize)*min((k-Sexp)/podSize,1)/Wici,4*B*D*((EP-podSize)/EP)*min(podSize*(k-Sexp)/EP,1)/(Wdcn*podSize))" data-fmt="time"></span>
     per layer →
-    <span class="t-show inline" data-expr="EP&lt;=8">in-node — AllToAll ≈ free ✓</span><span class="t-show inline" data-expr="EP&gt;8"><span class="t-if" data-expr="4*B*k*D*F/(EP*C) &gt; 4*B*D*(max(EP-8,0)/EP)*min(8*k/EP,1)/(Wdcn*podSize)" data-then="compute-bound ✓" data-else="communication-bound ✗"><span class="sn-post"><span class="sn-tag">adaptation</span> While
-    EP ≤ 8 the AllToAll never leaves the node: the (EP − 8)
-    factor vanishes and only the cheap in-node cost from the takeaway above remains,
-    so the live T<sub>comms</sub> reads zero. Cross-node costs switch on as you drag
-    EP past a node's worth of GPUs. Try: with DeepSeek-V3 loaded, scrub
-    EP from 8 to 64 to 512 and watch min(8k/EP, 1) start
-    discounting the bill once EP &gt; 8k =
-    <span class="t-out" data-expr="8*k" data-fmt="int"></span>.</span></span></span>
+    <span class="t-show inline" data-expr="E==1">not applicable to a dense model</span>
+    <span class="t-show inline" data-expr="E&gt;1 && (k-Sexp&lt;1 || E-Sexp&lt;1 || EP&gt;E-Sexp)">invalid: require 1 ≤ k<sub>r</sub> and EP ≤ E<sub>r</sub></span>
+    <span class="t-show inline" data-expr="E&gt;1 && k-Sexp&gt;=1 && EP&lt;=E-Sexp"><span class="t-if" data-expr="4*B*k*D*F/(EP*C) &gt; (EP&lt;=podSize ? 4*B*D*((EP-1)/EP)*min((k-Sexp)/EP,1)/Wici : max(4*B*D*((podSize-1)/podSize)*min((k-Sexp)/podSize,1)/Wici,4*B*D*((EP-podSize)/EP)*min(podSize*(k-Sexp)/EP,1)/(Wdcn*podSize)))" data-then="compute-bound ✓" data-else="communication-bound ✗"></span></span>
   </div>
 
-  <p>We either need <span class="eq-i">K &gt; EP/8</span> with
-  <span class="eq-i"><i class="v v-F">F</i> &gt; α · (EP − 8)/<i class="v">k</i></span>
-  or <span class="eq-i">EP ≫ K</span> and
+  <p class="note t-show" data-expr="gpu"><strong>✦ Adaptation:</strong> The live estimate is the substantive mash-up here. Within one
+  NVLink domain it uses the finite ragged AllToAll cost from Chapter 12 rather
+  than calling that transfer free. Beyond the domain it takes the slower of the
+  local switched-fabric component and the chapter's scale-out component, replacing
+  the H100-specific 8 with the selected hardware's domain size. Shared experts
+  remain in the total <i>k</i>-wide compute, but never become routed AllToAll
+  destinations.</p>
+
+  <p>For that H100 case, Chapter 12 concludes that we either need
+  <span class="eq-i">k<sub>r</sub> &gt; EP/8</span> with
+  <span class="eq-i"><i class="v v-F">F</i> &gt; α · (EP − 8)/k<sub>r</sub></span>
+  or <span class="eq-i">EP ≫ k<sub>r</sub></span> and
   <span class="eq-i"><i class="v v-F">F</i> &gt; 8 · α</span>, where
   <span class="eq-i">α = <i class="v v-C">C</i>/<i class="v v-W">W</i></span>. This
   gives you two domains in which expert parallelism is possible, one with a small
   amount of expert parallelism (roughly 2-node) and small <i class="v v-F">F</i>,
   or one with large <i class="v v-F">F</i> and EP arbitrarily large (up
-  to <i class="v">E</i>-way expert
-  parallelism).<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> The
-  chapter's per-expert <i class="v v-F">F</i> is this page's <i class="v v-F">F</i>,
-  so the live checks below use it directly. (The chapter writes the top-k both as
-  k and K in this sentence; both are this page's <i class="v">k</i>.)</span></span></p>
+  to <i>E</i><sub>r</sub>-way expert parallelism).</p>
 
-  <div class="eq-live">right now:
+  <div class="eq-live t-show" data-expr="gpu">right now:
     F = <span class="t-out" data-expr="F" data-fmt="si"></span> vs
-    8 · α<sub>node</sub> = 8 · C/W<sub>node</sub> =
-    <span class="t-out" data-expr="8*C/(Wdcn*podSize)" data-fmt="si"></span> →
-    <span class="t-if" data-expr="F &gt; 8*C/(Wdcn*podSize)" data-then="the large-F domain: expert parallelism can scale far beyond a node" data-else="the small-F domain: keep expert parallelism to roughly 1–2 nodes"></span>;
+    G · α<sub>domain</sub> = G · C/W<sub>domain</sub>, for G =
+    <span class="t-out" data-expr="podSize" data-fmt="int"></span>, is
+    <span class="t-out" data-expr="podSize*C/(Wdcn*podSize)" data-fmt="si"></span> →
+    <span class="t-if" data-expr="F &gt; C/Wdcn" data-then="the large-F domain: expert parallelism can scale far beyond one fast-fabric domain" data-else="the small-F domain: keep expert parallelism to roughly 1–2 fast-fabric domains"></span>;
     at the current EP =
     <span class="t-out" data-expr="EP" data-fmt="int"></span>, the small-EP
-    condition F &gt; α · (EP − 8)/k =
-    <span class="t-out" data-expr="C*max(EP-8,0)/(Wdcn*podSize*k)" data-fmt="si"></span>
-    is <span class="t-if" data-expr="F &gt; C*max(EP-8,0)/(Wdcn*podSize*k)" data-then="met ✓" data-else="not met ✗"></span>
+    condition F &gt; α · (EP − G)/k<sub>r</sub> =
+    <span class="t-out" data-expr="C*max(EP-podSize,0)/(Wdcn*podSize*max(k-Sexp,1))" data-fmt="si"></span>
+    is <span class="t-if" data-expr="F &gt; C*max(EP-podSize,0)/(Wdcn*podSize*max(k-Sexp,1))" data-then="met ✓" data-else="not met ✗"></span>
   </div>
 
   <p>You'll see both cases in practice, either a small amount of expert-parallelism
@@ -2126,11 +2171,12 @@ multiple mesh axes for a given parallelism strategy, we get more bandwidth.
   alongside TP.</p>
 
   <div class="takeaway"><strong>Takeaway:</strong> if
-  <span class="eq-i"><i class="v v-F">F</i> &lt; 8 · <i class="v v-C">C</i> / <i class="v v-W">W<sub>node</sub></i></span>,
-  expert parallelism can span 1-2 nodes with similar (slightly lower) cost to TP, or
-  if <span class="eq-i"><i class="v v-F">F</i> &gt; 8 · <i class="v v-C">C</i> / <i class="v v-W">W<sub>node</sub></i></span>,
-  we can do a significant amount of expert parallelism (up to <i class="v">E</i>
-  nodes) with relatively low cost.</div>
+  <span class="eq-i"><i class="v v-F">F</i> &lt; G · <i class="v v-C">C</i> / <i class="v v-W">W<sub>domain</sub></i></span>,
+  expert parallelism can span roughly 1–2 fast-fabric domains with similar
+  (slightly lower) cost to TP, or if
+  <span class="eq-i"><i class="v v-F">F</i> &gt; G · <i class="v v-C">C</i> / <i class="v v-W">W<sub>domain</sub></i></span>,
+  we can do a significant amount of expert parallelism, up to
+  <i>E</i><sub>r</sub>-way EP, with relatively low cost.</div>
 </section>
 <!-- ==== sections/06-pipeline.html ==== -->
 <!-- ============================================================
@@ -2226,17 +2272,21 @@ for i in range(num_layers - 1, -1, -1):
   numbers for one microbatch.</span></span></p>
 
   <div class="eq-live">
-    T<sub>hop</sub> = 2·<i class="v v-D">D</i>·(<i class="v v-B">B</i>/<i class="v v-M">M<sub>micro</sub></i>) ÷ <i class="v v-W">W<sub>ici</sub></i> =
-    <span class="t-out" data-expr="2*D*(B/Mmicro)/Wici" data-fmt="time"></span>
+    T<sub>hop</sub> = 2·<i class="v v-D">D</i>·(<i class="v v-B">B</i>/<i class="v v-M">M<sub>micro</sub></i>) ÷ <i class="v v-W">W<sub>stage</sub></i> =
+    <span class="t-out" data-expr="2*D*(B/Mmicro)/(gpu ? min(Wici,Wdcn*podSize) : Wici)" data-fmt="time"></span>
     vs one stage's compute
     <span class="t-out" data-expr="4*(B/Mmicro)*D*k*F*ceil(L/PP)/C" data-fmt="time"></span> →
-    <span class="t-if" data-expr="2*D*(B/Mmicro)/Wici &lt; 4*(B/Mmicro)*D*k*F*ceil(L/PP)/C" data-then="hop hides under the stage clock ✓" data-else="hop exposed ✗"></span><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Try:
+    <span class="t-if" data-expr="2*D*(B/Mmicro)/(gpu ? min(Wici,Wdcn*podSize) : Wici) &lt; 4*(B/Mmicro)*D*k*F*ceil(L/PP)/C" data-then="hop hides under the stage clock ✓" data-else="hop exposed ✗"></span><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Try:
     this check passes with room to spare — slash
     <i class="v v-W">W<sub>ici</sub></i> =
     <span class="t-var" data-var="Wici" data-min="1e10" data-max="2e12" data-scale="log" data-fmt="bw"></span>
     tenfold and it <em>still</em> passes, because the hop's cost has a factor of
     <i class="v v-F">F</i>·layers-per-stage of compute to hide behind. That headroom
-    is the entire reason pipelining tolerates weak networks.</span></span>
+    is the entire reason pipelining tolerates weak networks. On GPU this check
+    conservatively uses the slower of per-GPU NVLink and aggregate node egress,
+    assuming adjacent stages can cross a node boundary; on TPU it uses ICI. It
+    is a pure-PP boundary model: orthogonal DP/TP sharding would reduce the
+    per-rank activation block and requires an explicit stage layout.</span></span>
   </div>
 
   <p><strong>Why is this difficult/annoying?</strong> You might have noticed in the
@@ -2250,21 +2300,12 @@ for i in range(num_layers - 1, -1, -1):
   <i class="v v-PP">PP</i> =
   <span class="t-var" data-var="PP" data-min="1" data-max="32" data-scale="lin" data-snap="int" data-fmt="int"></span>-stage
   pipeline, keeping <span class="tm">TPU</span> 0 utilized for at least a larger fraction of the total step
-  time.<span class="sn edit"><button class="sn-ref" aria-label="edit note">Δ</button><span class="sn-body"><span class="sn-tag">edited</span> The
-  chapter reads: <span class="orig">“Typically we try to mitigate this first with
-  microbatching, which sends multiple small batches through the pipeline, keeping
-  <span class="tm">TPU</span> 0 utilized for at least a larger fraction of the total step
-  time.”</span> — reworded to host the scrubbable microbatch and stage
-  counts.<span class="sn-post"><span class="sn-tag">adaptation</span> The
-  chapter never states the bubble-fraction formula; the equation below is ours, for a
-  GPipe-style schedule. (Backward blocks in the schedule are drawn ~2× the forward
-  width — backpropagating through a matmul costs roughly twice the forward FLOPs, one
-  matmul for ∂L/∂x and one for ∂L/∂W — but the bubble fraction counts time and comes
-  out the same either way.)</span></span></span></p>
+  time.</p>
 
   <div class="eq">
     bubble fraction =
     <span class="frac"><span><i class="v v-PP">PP</i> − 1</span><span><i class="v v-M">M<sub>micro</sub></i> + <i class="v v-PP">PP</i> − 1</span></span>
+    <span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> This GPipe-style bubble fraction is added by this edition; the source describes microbatching qualitatively but does not state the formula.</span></span>
   </div>
   <div class="eq-live">right now:
     <span class="t-out" data-expr="PP-1" data-fmt="int"></span> /
@@ -2303,13 +2344,13 @@ for i in range(num_layers - 1, -1, -1):
       <span class="frac"><span>2<i class="v v-B">B</i><i class="v v-D">D</i></span><span><i class="v v-W">W</i> · <i class="v">N<sub>layers</sub></i></span></span>
     </div>
 
-    <div class="eq-live">right now, over node egress
-      <span class="t-out" data-expr="Wdcn*podSize" data-fmt="bw"></span> with
+    <div class="eq-live">right now, over effective stage-link bandwidth
+      <span class="t-out" data-expr="min(Wici,Wdcn*podSize)" data-fmt="bw"></span> with
       N<sub>layers</sub> = <span class="t-out" data-expr="L" data-fmt="int"></span>:
       per-layer PP comms ≈
-      <span class="t-out" data-expr="1.5*2*B*D/(Wdcn*podSize*L)" data-fmt="time"></span>
+      <span class="t-out" data-expr="1.5*2*B*D/(min(Wici,Wdcn*podSize)*L)" data-fmt="time"></span>
       vs the DP AllReduce's
-      <span class="t-out" data-expr="8*D*E*F/(Wdcn*podSize)" data-fmt="time"></span> per layer
+      <span class="t-out" data-expr="8*D*E*F/Wdp" data-fmt="time"></span> per layer
     </div>
 
     <p>Since we are dividing by <i class="v">N<sub>layers</sub></i>, this is vastly
@@ -2351,20 +2392,16 @@ for i in range(num_layers - 1, -1, -1):
   <span class="eq-i">W<sub>i</sub> @ ∂L/∂x<sub>i+1</sub></span>, and the
   <span class="eq-i">dW</span> matmul
   <span class="eq-i">∂L/∂x<sub>i+1</sub> @ x<sub>i</sub></span>. Since each of these
-  requires some FLOPs, we can overlap them to fully hide the bubble. Here's our live
-  stand-in for the plot from the recent
+  requires some FLOPs, we can overlap them to fully hide the bubble. Here's <span class="add">our live
+  stand-in for</span> the plot from the recent
   <a href="https://arxiv.org/abs/2412.19437">DeepSeek v3 paper</a> showing their
   "bubble-free" pipeline
-  schedule:<span class="sn edit"><button class="sn-ref" aria-label="edit note">Δ</button><span class="sn-body"><span class="sn-tag">edited</span> The
-  chapter reads: <span class="orig">“Here's a plot from the recent DeepSeek v3 paper
-  showing their "bubble-free" pipeline schedule:”</span> — reworded because our
-  interactive schedule widget stands in for their static
-  figure.<span class="sn-post"><span class="sn-tag">adaptation</span> Toggle
+  schedule:<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Toggle
   the widget's mode: <em>naive</em> is GPipe, <em>1F1B</em> interleaves one forward
   with one backward (same bubble, far less activation memory held live), and
   <em>overlap-dW</em> is the DeepSeek-v3-style schedule — rush every ∂x result down
   the pipeline to unblock neighbors, and drop the deferred ∂W matmuls into slots that
-  would otherwise sit idle.</span></span></span></p>
+  would otherwise sit idle.</span></span></p>
 
   <figure class="breakout">
     <div class="widget" data-widget="pipeline-schedule" data-opts='{}'></div>
@@ -2401,7 +2438,7 @@ for i in range(num_layers - 1, -1, -1):
      see page footer / LICENSE-scaling-book.txt). Adaptation content is
      disclosed in ✦ margin notes; altered sentences carry Δ notes.
      ============================================================ -->
-<section id="pods">
+<section id="pods" class="t-show" data-expr="1-gpu">
   <h2>Scaling Across Pods</h2>
 
   <p>The largest possible TPU slice is a TPU v5p SuperPod with 8960 chips (and 2240
@@ -2426,13 +2463,9 @@ for i in range(num_layers - 1, -1, -1):
   Let <i class="v v-N">N</i> = <span class="t-out" data-expr="N" data-fmt="int"></span>
   be the number of TPUs we want to scale to and
   <i class="v">M</i> =
-  <span class="t-var" data-var="podSize" data-min="64" data-max="65536" data-scale="log" data-fmt="int"></span>
-  be the number of TPUs per ICI-connected
-  slice.<span class="sn edit"><button class="sn-ref" aria-label="edit note">Δ</button><span class="sn-body"><span class="sn-tag">edited</span> The
-  chapter reads: <span class="orig">“Let $N$ be the number of TPUs we want to scale to
-  and $M$ be the number of TPUs per ICI-connected slice.”</span> — the live value of
-  <i class="v v-N">N</i> and the scrubbable slice size <i class="v">M</i> are inserted
-  in place.</span></span> To do an <span class="op op-ar">AllReduce</span> over DCN, we
+  <span class="t-var" data-var="podSize" data-min="64" data-max="65536" data-scale="log" data-snap="int" data-fmt="int"></span>
+  be the number of TPUs per ICI-connected slice. To do an
+  <span class="op op-ar">AllReduce</span> over DCN, we
   can do a ring-reduction over the set of pods, giving us (in the backward pass):</p>
 
   <div class="eq">
@@ -2444,12 +2477,19 @@ for i in range(num_layers - 1, -1, -1):
   </div>
 
   <div class="eq-live">right now:
-    T<sub>math</sub> = <span class="t-out" data-expr="8*B*D*k*F/(N*C)" data-fmt="time"></span> vs
-    T<sub>comms</sub> = <span class="t-out" data-expr="8*D*E*F/(podSize*Wdcn)" data-fmt="time"></span> →
-    per-pod batch <span class="t-out" data-expr="B*podSize/N" data-fmt="tokens"></span> vs
+    T<sub>math</sub> = <span class="t-out" data-expr="8*B*D*k*F/(N*C)" data-fmt="time"></span>.
+    <span class="t-show inline" data-expr="N&lt;=podSize">All chips fit in one ICI domain, so no DCN collective is required.</span>
+    <span class="t-show inline" data-expr="N&gt;podSize">T<sub>comms</sub> = <span class="t-out" data-expr="8*D*E*F*ceil(N/podSize)/(N*Wdcn)" data-fmt="time"></span> →
+    balanced per-pod batch <span class="t-out" data-expr="B/ceil(N/podSize)" data-fmt="tokens"></span> vs
     ridge <span class="t-show inline" data-expr="E>1">(E/k)·α<sub>dcn</sub> = </span><span class="t-out" data-expr="(E/k)*alphaDcn" data-fmt="int"></span> →
-    <span class="t-if" data-expr="B*podSize/N &gt; (E/k)*alphaDcn" data-then="compute-bound ✓" data-else="DCN-bound ✗"></span>
+    <span class="t-if" data-expr="B/ceil(N/podSize) &gt; (E/k)*alphaDcn" data-then="compute-bound ✓" data-else="DCN-bound ✗"></span>.</span>
   </div>
+
+  <p class="note"><strong>✦ Adaptation:</strong> The printed derivation assumes full, equal-size slices
+  (<i class="v v-N">N</i> is a multiple of <i class="v">M</i>). The live model
+  balances the chips across <span class="t-out" data-expr="ceil(N/podSize)" data-fmt="int"></span>
+  slices, so a partial final slice cannot silently receive a full slice's aggregate
+  NIC bandwidth.</p>
 
   <p>The comms bandwidth scales with <i class="v">M</i>, since unlike ICI the total
   bandwidth grows as we grow our ICI domain and acquire more NICs. Simplifying, we
@@ -2499,7 +2539,7 @@ for i in range(num_layers - 1, -1, -1):
     <span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span>
     down until the verdict flips — the comms bar never moves, exactly the
     weight-moving pattern from the primer. Then shrink the slice
-    (<span class="t-var" data-var="podSize" data-min="64" data-max="65536" data-scale="log" data-fmt="int"></span>)
+    (<span class="t-var" data-var="podSize" data-min="64" data-max="65536" data-scale="log" data-snap="int" data-fmt="int"></span>)
     and watch T<sub>comms</sub> grow: fewer hosts per pod means fewer NICs sharing the
     same gradient bytes.</span></span></figcaption>
   </figure>
@@ -2508,11 +2548,11 @@ for i in range(num_layers - 1, -1, -1):
   want to train LLaMA-3 70B on TPU v5p with a BS of
   <span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span>
   tokens. LLaMA-3 70B has <i class="v v-F">F</i> ≈
-  <span class="t-var" data-var="F" data-min="1024" data-max="262144" data-scale="log" data-snap="pow2" data-fmt="si"></span>.
+  <span class="t-var" data-var="F" data-min="1024" data-max="262144" data-scale="log" data-snap="int" data-fmt="si"></span>.
   From the above sections, we know the following:</p>
 
   <div class="preset-row"><span class="preset-label">Load the scenario:</span>
-    <button class="t-preset" data-set='{"F":30720,"B":2000000}'>LLaMA-3 70B, BS = 2M</button>
+    <button class="t-preset" data-set='{"F":30720,"B":2000000,"E":1,"k":1,"Sexp":0,"EP":1}'>LLaMA-3 70B, BS = 2M</button>
   </div>
 
   <ul>
@@ -2555,7 +2595,7 @@ for i in range(num_layers - 1, -1, -1):
   <span class="t-out" data-expr="alphaDcn" data-fmt="int"></span>, so we just need to
   make sure our batch size per ICI domain is greater than this. This is trivial for
   us, since with 2 pods we'd have a per-pod BS of
-  <span class="t-out" data-expr="B*podSize/N" data-fmt="tokens"></span>, and a per TPU
+  <span class="t-out" data-expr="B/ceil(N/podSize)" data-fmt="tokens"></span>, and a per TPU
   batch size of <span class="t-out" data-expr="B/N" data-fmt="int"></span>, which is
   great (maybe cutting it a bit close, but theoretically
   sound).<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> The
@@ -2564,8 +2604,8 @@ for i in range(num_layers - 1, -1, -1):
   the one-pod recipe first and watch both numbers move.</span></span></p>
 
   <div class="preset-row"><span class="preset-label">Try:</span>
-    <button class="t-preset" data-set='{"B":1000000,"F":30720,"DP":1024,"TP":8,"podSize":8960}'>BS = 1M, one pod (<i class="v v-DP">DP</i>=1024, <i class="v v-TP">TP</i>=8)</button>
-    <button class="t-preset" data-set='{"B":2000000,"F":30720,"DP":2240,"TP":8,"podSize":8960}'>BS = 2M, two pods</button>
+    <button class="t-preset" data-set='{"B":1000000,"F":30720,"DP":1024,"TP":8,"podSize":8960,"E":1,"k":1,"Sexp":0,"EP":1}'>BS = 1M, one pod (<i class="v v-DP">DP</i>=1024, <i class="v v-TP">TP</i>=8)</button>
+    <button class="t-preset" data-set='{"B":2000000,"F":30720,"DP":2240,"TP":8,"podSize":8960,"E":1,"k":1,"Sexp":0,"EP":1}'>BS = 2M, two pods</button>
   </div>
 
   <div class="takeaway"><strong>Takeaway:</strong> Scaling across multiple TPU pods is
@@ -2610,12 +2650,8 @@ for i in range(num_layers - 1, -1, -1):
   <p>where <i class="v v-B">B</i> is the global batch size <strong>in tokens</strong>
   (i.e. <i class="v v-B">B</i> = batch size · sequence length).</p>
 
-  <p>Here we'll reproduce the table from that chapter showing effective bandwidths at
-  both the GPU and node
-  level:<span class="sn edit"><button class="sn-ref" aria-label="edit note">Δ</button><span class="sn-body"><span class="sn-tag">edited</span> The
-  chapter reads: <span class="orig">“Here we'll reproduce the table above showing
-  effective bandwidths at both the GPU and node level:”</span> — “above” pointed at an
-  earlier table in Chapter 12 that this page doesn't carry.</span></span></p>
+  <p>Here we'll reproduce the table from Chapter 12 showing effective bandwidths at
+  both the GPU and node level:</p>
 
   <table class="tbl">
     <thead>
@@ -2642,21 +2678,10 @@ for i in range(num_layers - 1, -1, -1):
   parallelism,</strong> and combinations thereof. For the rest of this section we'll
   focus on H100 rooflines for specific calculations. GB200-NVL72 has the same general
   rooflines but because we have a larger node egress bandwidth, we can sometimes be
-  bottlenecked at the node level
-  instead.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Those
-  per-scheme rooflines live in the scheme sections above: data parallelism (with
-  Chapter 12's MoE penalty) in <a href="#data-parallelism">Data Parallelism</a>,
-  tensor parallelism in <a href="#tensor-parallelism">Tensor Parallelism</a>, expert
-  parallelism — with its AllToAll rooflines — in
-  <a href="#expert-parallelism">Expert Parallelism</a>, and pipelining in
-  <a href="#pipelining">Pipelining</a>. Below are only the bounds they land on, on
-  this fabric.</span></span></p>
+  bottlenecked at the node level instead. The scheme derivations are merged into
+  their corresponding sections above; below are the bounds they land on here.</p>
 
-  <p>Here is the mapping that makes this whole page compute GPU
-  rooflines:<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> This
-  paragraph and the preset row below are the adaptation's, not the chapter's; the
-  numbers follow Chapter 12's bandwidth table above. Flip the presets and every
-  equation, meter, and chart on the page answers for that machine.</span></span> read
+  <p>Here is the mapping used by the live GPU rooflines: read
   <i class="v v-W">W<sub>ici</sub></i> as the per-GPU <strong>egress bandwidth</strong>
   into the NVLink switch fabric (450 GB/s on H100, 900 GB/s on B200); read a
   <strong>pod</strong> as an NVLink domain (8 GPUs per node, or 72 on GB200 NVL72);
@@ -2667,8 +2692,12 @@ for i in range(num_layers - 1, -1, -1):
   <span class="eq-i"><i class="v v-C">C</i>/<i class="v v-W">W<sub>ici</sub></i></span> =
   <span class="t-out" data-expr="alpha" data-fmt="int"></span> is the in-node ridge,
   <span class="eq-i"><i class="v v-C">C</i>/<i class="v v-W">W<sub>dcn</sub></i></span> =
-  <span class="t-out" data-expr="alphaDcn" data-fmt="int"></span> the per-node one, and
-  every derivation above just works.</p>
+  <span class="t-out" data-expr="alphaDcn" data-fmt="int"></span> the per-GPU
+  scale-out ratio. DP/FSDP/TP select the local or scale-out collective bandwidth
+  from their degree. Mixed FSDP+TP needs one extra correction: Chapter 12's
+  hierarchical <span class="eq-i">max(T<sub>domain</sub>, T<sub>scale-out</sub>)</span>
+  rule, because inner TP does not accelerate an outer reduction until it spans
+  more than one NVLink domain. The mixed meters and explorers implement that rule.</p>
 
   <div class="preset-row"><span class="preset-label">Hardware:</span>
     <button class="t-preset" data-set='{"C":9.9e14,"Wici":4.5e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1,"effC":0.73,"effIci":0.82,"effDcn":0.85}'>H100</button>
@@ -2685,13 +2714,7 @@ for i in range(num_layers - 1, -1, -1):
   <a href="#data-parallelism">Data Parallelism</a> —
   <span class="eq-i"><i class="v v-B">B</i>/<i class="v v-DP">DP</i> &gt;
   <i class="v v-C">C</i>/<i class="v v-W">W<sub>collective</sub></i></span> — is
-  reused unchanged,<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> This
-  lead-in sentence is the adaptation's; Chapter 12 re-derives the DP roofline here
-  (identical T<sub>math</sub>/T<sub>comms</sub> algebra to this chapter's Data
-  Parallelism section, with <i class="v v-W">W<sub>collective</sub></i> in place of
-  <i class="v v-W">W<sub>ici</sub></i>·<i class="v v-M">M<sub>DP</sub></i>), and that
-  derivation is cut as redundant. Its where-clause and bullets follow
-  verbatim.</span></span> where <i class="v v-W">W<sub>collective</sub></i> is either
+  reused unchanged, where <i class="v v-W">W<sub>collective</sub></i> is either
   the GPU or node level egress bandwidth depending on whether we're sharding within a
   node or across nodes. Thus:</p>
 
@@ -2707,68 +2730,57 @@ for i in range(num_layers - 1, -1, -1):
       <span class="t-out" data-expr="alphaDcn/podSize" data-fmt="int"></span></span>.</li>
   </ul>
 
-  <p>This is quite a bit higher than on a TPU, where the number is 850 with all three
-  axes. For instance, LLaMA-3, which trained on 16000 H100s would need a batch size of
-  at least
-  <span class="t-out" data-expr="16000*alphaDcn/podSize" data-fmt="si"></span> tokens
-  (for reference, they used 16M). DeepSeek v3 trained on 2048 H800 GPUs with lower
-  300GB/s of bandwidth (instead of 450GB/s on H100)<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body">The
-chapter's 300 GB/s matches neither the H800's spec (400 GB/s bidirectional →
-200 GB/s per direction) nor DeepSeek-V3's own measurement ("NVLink offers a
-bandwidth of 160 GB/s"). This page's H800 preset uses the 200 GB/s spec — so the
-live ridge here reads higher than the chapter's printed 3,300 (which divides by
-the unsourced 300) and higher still than reality (divide by 160). See the
-<a href="#hardware-table">hardware table</a>.</span></span> would need
-  <span class="eq-i"><span class="t-out" data-expr="C" data-fmt="e"></span> /
-  <span class="t-out" data-expr="Wici" data-fmt="e"></span> =
-  <span class="t-out" data-expr="alpha" data-fmt="int"></span></span> tokens per GPU,
-  or about <span class="t-out" data-expr="2048*alpha" data-fmt="si"></span> (in
-  practice, they used
-  4M).<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> These
-  numbers read from the live state: click the <strong>H800 (DeepSeek)</strong> preset
-  above and the ridge becomes the chapter's 3,300 tokens per GPU; on the H100 preset
-  the same spans show 2,200. (Chapter 12 also refines the picture when <i class="v v-DP">DP</i> is small —
-  spanning exactly 2 nodes rides the ring's (<i class="v v-DP">DP</i>−1)/<i class="v v-DP">DP</i> factor for ~2× effective
-  bandwidth, which is why you see 2-way data parallelism fairly often; condensed
-  here, see Chapter 12. Its MoE refinement — the DP ridge inflates by E/k — now
-  lives in <a href="#data-parallelism">Data Parallelism</a>, visible with a MoE
-  model loaded.)</span></span></p>
+  <p>This is quite a bit higher than on a TPU, where the number is 850 with all
+  three axes. On the H100 scale-out fabric the dense asymptotic floor is
+  990e12/400e9 = 2,475 tokens per GPU, so 16,384 GPUs would require about
+  40.6M tokens before the small-ring and model-parallel refinements; Llama 3.1
+  405B used 16M. Chapter 12 quoted a 3,300-token H800 baseline from an unsupported
+  300 GB/s figure. The reconciled H800 <em>local-link dense baseline</em> is 4,950
+  in spec mode (990e12/200e9) and about 4,517 in this page's measured mode. Those
+  are not a model of DeepSeek's full sparse run: its EP, PP, and 2-way DP alter the
+  outer reduction. DeepSeek reports a pretraining batch schedule from 3,072 to
+  15,360 sequences at a 4K maximum sequence length — about 12.6M to 62.9M tokens,
+  with 62.9M at steady state.<span class="sn edit"><button class="sn-ref" aria-label="edit note">Δ</button><span class="sn-body"><span class="sn-tag">edited</span>
+  The source says H800 has 300 GB/s and <span class="orig">“in practice, they used
+  4M”</span>. H800 is 200 GB/s per direction by the reconciled spec, DeepSeek
+  reports 160 GB/s measured, and its report gives the sequence-batch schedule
+  above. See the <a href="#hardware-table">hardware table</a>.</span></span></p>
+
+  <p><strong>Small-DP correction.</strong> The asymptotic ridge above omits the
+  ring factor. With <i>X</i> scale-out domains, the exact dense condition is
+  <span class="eq-i"><i class="v v-B">B</i>/<i class="v v-N">N</i> &gt;
+  (<i class="v v-C">C</i>/<i class="v v-W">W<sub>collective</sub></i>) · (X−1)/X</span>
+  (and ×E/k for the equal-width MoE model). For exactly two
+  domains the floor is halved, which is why 2-way data parallelism appears so
+  often.</p>
 
   <figure class="breakout">
     <div class="widget" data-widget="bound-meter" data-opts='{"scheme":"dp"}'></div>
     <figcaption>✦ The same data-parallel meter from earlier on the page, mounted here
     as adaptation chrome: flip the hardware presets above — H100, B200, GB200 NVL72,
     H800, back to TPU v5p — and watch the identical two clocks answer for each fabric.
-    With <i class="v v-M">M<sub>DP</sub></i> = 1 on a switched fabric, the verdict is
-    exactly the in-node bound
+    With <i class="v v-M">M<sub>DP</sub></i> = 1 on a switched fabric, the verdict uses
+    the fabric carrying the current DP degree:
     <span class="eq-i"><i class="v v-B">B</i>/<i class="v v-DP">DP</i> &gt;
-    <span class="t-out" data-expr="alpha" data-fmt="int"></span></span>.</figcaption>
+    <span class="t-out" data-expr="alphaDP" data-fmt="int"></span></span>.</figcaption>
   </figure>
 
   <p>For tensor parallelism, the bound from
   <a href="#tensor-parallelism">Tensor Parallelism</a> —
   <span class="eq-i"><i class="v v-TP">TP</i> &lt; <i class="v v-F">F</i> · <i class="v v-W">W<sub>collective</sub></i> / <i class="v v-C">C</i></span> —
   gives about <i class="v v-F">F</i>/<span class="t-out" data-expr="alpha" data-fmt="int"></span>-way
-  TP within a node,<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> This
-  lead-in sentence is the adaptation's; Chapter 12's TP derivation (the same
-  T<sub>math</sub>/T<sub>comms</sub> algebra as this chapter's Tensor Parallelism
-  section, whose takeaway already carries the GPU delta) is cut as redundant. The
-  2-node sentence that follows is verbatim.</span></span> and pipelining — whose
+  TP within a node, and pipelining — whose
   Chapter 12 treatment now lives in <a href="#pipelining">Pipelining</a> under GPU
   presets — is basically free from a communication standpoint. As with above, we
-  get an extra 2X bandwidth when we span exactly 2 nodes, so we can generally do
-  16-way tensor parallelism
-  (<span class="eq-i"><i class="v v-F">F</i> &gt; <span class="t-out" data-expr="alphaDcn/podSize" data-fmt="int"></span> · (<i class="v v-TP">TP</i> − 8)</span>),
-  which gives us up to 19-way model parallelism in
-  theory.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> “As
-  with above” refers to Chapter 12's small-<i class="v v-DP">DP</i> refinement (condensed in the note two
-  paragraphs up): a collective spanning exactly 2 nodes only pays the ring's
-  (<i class="v v-DP">DP</i>−1)/<i class="v v-DP">DP</i> factor, effectively doubling bandwidth.</span></span></p>
+  get an extra 2X bandwidth when we span exactly 2 fast-fabric domains. For the
+  chapter's eight-GPU H100 node this usually permits 16-way TP; generalized to a
+  domain of G = <span class="t-out" data-expr="podSize" data-fmt="int"></span>, the
+  refinement is
+  <span class="eq-i"><i class="v v-F">F</i> &gt;
+  <span class="t-out" data-expr="alphaDcn/podSize" data-fmt="int"></span> ·
+  (<i class="v v-TP">TP</i> − G)</span>.</p>
 
-  <h3>What collectives cost on this fabric<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> This
-  heading is the adaptation's; the takeaways and sentences under it are carried
-  verbatim from Chapter 12's collectives sections (its full derivations, quizzes,
-  and figures are condensed away — see Chapter 12).</span></span></h3>
+  <h3>What collectives cost on this fabric</h3>
 
   <div class="takeaway"><strong>Takeaway:</strong> the cost to AllGather or
   ReduceScatter an array of B bytes within a single node is about
@@ -2828,10 +2840,10 @@ the unsourced 300) and higher still than reality (divide by 160). See the
   <p><strong>What does DeepSeek do?</strong> For reference,
   <a href="https://arxiv.org/abs/2412.19437">DeepSeek V3</a> is trained with 2048
   H800 GPUs with:<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> These
-  two worked examples are Chapter 12's, verbatim. The preset buttons below each one
-  load its whole configuration — hardware, model shape, and parallelism — into the
-  page's shared state, so every section above answers for that training
-  run.</span></span></p>
+  two worked examples are Chapter 12's. The buttons load their cited hardware,
+  model shape, batch, and listed parallelism degrees. Because the page's generic
+  chip count is DP·TP, widgets that do not explicitly model EP or PP should be read
+  as component-level views, not as a reconstruction of the full training run.</span></span></p>
 
   <ul>
     <li>64-way Expert Parallelism (EP) spanning 8 nodes</li>
@@ -2851,11 +2863,11 @@ the unsourced 300) and higher still than reality (divide by 160). See the
   the final pipeline stages.</p>
 
   <div class="preset-row"><span class="preset-label">Load it:</span>
-    <button class="t-preset" data-set='{"C":9.9e14,"Wici":3e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1,"D":7168,"F":2048,"L":61,"E":257,"k":9,"EP":64,"PP":16,"Mmicro":16,"DP":2,"TP":1,"B":62914560}'>DeepSeek V3 on 2048 H800s</button>
+    <button class="t-preset" data-set='{"C":9.9e14,"Wici":2e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1,"D":7168,"F":2048,"L":61,"E":257,"k":9,"Sexp":1,"EP":64,"PP":16,"DP":2,"TP":1,"B":62914560,"effC":0.73,"effIci":0.80,"effDcn":0.85}'>DeepSeek V3 on 2048 H800s</button>
   </div>
 
-  <p><strong>What does LLaMA-3 do?</strong> LLaMA-3 trains with a BS of 16M tokens on
-  16k GPUs, or about 1k tokens per GPU. They do:</p>
+  <p><strong>What does Llama 3.1 405B do?</strong> Llama 3.1 405B trains with a BS of
+  16M tokens on 16,384 H100 GPUs, or about 977 tokens per GPU. They do:</p>
 
   <ul>
     <li>8-way Tensor Parallelism within a node (TP)</li>
@@ -2863,16 +2875,37 @@ the unsourced 300) and higher still than reality (divide by 160). See the
     <li>128-way ZeRO-1 Data Parallelism</li>
   </ul>
 
-  <p>This is also a dense model so in general these things are pretty trivial. The
+  <p>The decomposition is <span class="eq-i">8 TP · 16 PP · 128 DP = 16,384</span>
+  GPUs. This is also a dense model so in general these things are pretty trivial. The
   16-way PP reduces the cost of the data parallel AllReduce by 16x, which helps us
   reduce the critical batch size.</p>
 
   <div class="preset-row"><span class="preset-label">Load it:</span>
-    <button class="t-preset" data-set='{"C":9.9e14,"Wici":4.5e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1,"D":8192,"F":28672,"L":80,"E":1,"k":1,"EP":1,"PP":16,"Mmicro":16,"DP":128,"TP":8,"B":16000000,"effC":0.73,"effIci":0.82,"effDcn":0.85}'>LLaMA-3 on 16k H100s</button>
+    <button class="t-preset" data-set='{"C":9.9e14,"Wici":4.5e11,"Wdcn":5e10,"HBM":8e10,"podSize":8,"gpu":1,"MDP":1,"MTP":1,"D":16384,"F":53248,"L":126,"E":1,"k":1,"Sexp":0,"EP":1,"PP":16,"DP":128,"TP":8,"B":16000000,"effC":0.73,"effIci":0.82,"effDcn":0.85}'>Llama 3.1 405B on 16,384 H100s</button>
   </div>
+
+  <h3>TLDR of LLM scaling on GPUs<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Restored from Chapter 12's omitted “TLDR of LLM Scaling on GPUs” and practical recipe; condensed to avoid repeating the full derivations already merged into the scheme sections.</span></span></h3>
+  <ul>
+    <li>DP or FSDP needs a local batch of roughly 2,500 dense-model tokens per
+      GPU on H100-scale fabrics; MoEs multiply that floor by E/k, while a small
+      DP degree benefits from the ring correction above.</li>
+    <li>TP is usually compute-bound only within one NVLink domain, or at most
+      roughly two. NVL72 expands that local domain but does not remove the
+      topology check.</li>
+    <li>Model parallelism that spans domains can reduce the outer FSDP cost, but
+      on GPUs the reduction tracks <em>domains spanned</em>, not merely the inner
+      sharding degree.</li>
+    <li>PP has low byte cost if its scheduling complexity, bubbles, and delayed
+      gradient reductions are handled successfully.</li>
+  </ul>
+  <p><strong>Practical recipe:</strong> smaller dense models can use aggressive
+  FSDP when batch permits; larger dense models commonly combine one- or two-domain
+  TP with many-stage PP and DP; MoEs add EP, generally preferring it to TP while
+  keeping latency-sensitive collectives within as few domains as practical.</p>
 </section>
 
 <section id="takeaways">
+  <div class="t-show" data-expr="1-gpu && E==1">
   <h2>Takeaways from LLM Training on TPUs</h2>
 
   <ul>
@@ -2993,24 +3026,6 @@ the unsourced 300) and higher still than reality (divide by 160). See the
         <td><span class="eq-i">4<i class="v v-B">B</i><i class="v v-D">D</i><i class="v v-F">F</i>/(<i class="v v-DP">DP</i><i class="v v-TP">TP</i>) + 8<i class="v v-B">B</i><i class="v v-D">D</i><i class="v v-F">F</i>/(<i class="v v-DP">DP</i><i class="v v-TP">TP</i>)</span></td>
         <td><span class="eq-i">(4<i class="v v-B">B</i><i class="v v-D">D</i>/<i class="v v-DP">DP</i> + 4<i class="v v-D">D</i><i class="v v-F">F</i>/<i class="v v-TP">TP</i>) + (8<i class="v v-B">B</i><i class="v v-D">D</i>/<i class="v v-DP">DP</i> + 8<i class="v v-D">D</i><i class="v v-F">F</i>/<i class="v v-TP">TP</i>)</span></td>
       </tr>
-      <tr>
-        <td>EP (MoE)<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> This
-          row is added by this adaptation — it is not in the chapter's table. It
-          carries the expert-parallelism scheme merged in from Chapter 12 (see
-          <a href="#expert-parallelism">Expert Parallelism</a>): compute is the MLP
-          FLOPs over the EP-way expert shards — the activated width
-          <i class="v">k</i>·<i class="v v-F">F</i>, with <i class="v v-F">F</i> the
-          per-expert width per the page's convention — comms is the 2 AllToAlls
-          forward + their transposes backward on the switched-fabric cost model,
-          with the (EP−8)/EP factor vanishing in-node and the
-          min(8<i class="v">k</i>/EP, 1) ragged discount. At
-          <i class="v">E</i> = <i class="v">k</i> = 1 it reduces to the dense DP
-          row's compute with near-zero comms.</span></span></td>
-        <td><span class="eq-i">4<i class="v v-B">B</i><i class="v">k</i><i class="v v-D">D</i><i class="v v-F">F</i>/EP + 8<i class="v v-B">B</i><i class="v">k</i><i class="v v-D">D</i><i class="v v-F">F</i>/EP</span></td>
-        <td><span class="eq-i">(4<i class="v v-B">B</i><i class="v v-D">D</i> + 8<i class="v v-B">B</i><i class="v v-D">D</i>) ·
-          <span class="frac"><span>EP − 8</span><span>EP</span></span>
-          · min(8<i class="v">k</i>/EP, 1)</span></td>
-      </tr>
     </tbody>
   </table>
 
@@ -3050,6 +3065,16 @@ the unsourced 300) and higher still than reality (divide by 160). See the
       simple. You can either do data parallelism or FSDP + data parallelism across
       DCN. The middle section is where things get interesting.</li>
   </ul>
+  </div>
+  <div class="t-show" data-expr="gpu || E&gt;1">
+    <h2>Takeaways</h2>
+    <p class="note"><strong>✦ Adaptation:</strong> The source table below this
+    anchor is the dense TPU summary, so it is hidden for the current state rather
+    than allowed to display false MoE or GPU formulas. For GPU guidance, use the
+    <a href="#gpus">GPU TLDR and practical recipe</a>; for MoE routing, use
+    <a href="#expert-parallelism">Expert Parallelism</a>. The scheme-level meters
+    remain live for the selected model and hardware.</p>
+  </div>
 </section>
 <!-- ==== sections/08-problems.html ==== -->
 <!-- ============================================================
@@ -3360,11 +3385,13 @@ the unsourced 300) and higher still than reality (divide by 160). See the
   Charlie Chen, Sharad Vikram, Federico Lebron, Peter Choy, Vinay Ramasesh, Albert Webson, and Reiner Pope
   (Google DeepMind, 2025), with GPU material drawn from
   <a href="https://jax-ml.github.io/scaling-book/gpus/">Chapter 12 of the same book</a>.
-  The text in the main column is the authors’, reproduced under the
+  Source passages are the authors’, reproduced under the
   <a href="LICENSE-scaling-book.txt">MIT License</a> (© 2022 Maruan Al-Shedivat, © 2025 Google LLC),
-  whose notice ships with this page; departures are disclosed in the margin (✦ additions, Δ edits).
-  This interactive edition was built by <strong>Fable</strong> (Claude, Anthropic) with its human editor;
-  all errors introduced by the adaptation are Fable’s.</p>
+  whose notice ships with this page; departures are labeled as adaptation
+  (✦ additions, Δ edits). This AI-assisted interactive edition was initially
+  built by <strong>Fable</strong> (Claude, Anthropic) with its human editor and
+  adversarially reviewed and corrected by <strong>OpenAI Codex</strong>. Errors
+  introduced by the adaptation are not attributable to the book’s authors.</p>
   <p>The interaction style follows Bret Victor’s
   <a href="https://worrydream.com/ExplorableExplanations/">Explorable Explanations</a>:
   a reactive document “allows the reader to play with the author’s assumptions and analyses, and see the consequences.”

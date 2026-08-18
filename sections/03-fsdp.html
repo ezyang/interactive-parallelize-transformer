@@ -48,7 +48,7 @@
   weights during the backward pass at no extra cost.</p>
 
   <figure class="breakout">
-    <div class="widget" data-widget="collective" data-opts='{"op":"ar-decomp","bytesExpr":"2*D*E*F","axisVar":"MDP","label":"AllReduce = ReduceScatter + AllGather"}'></div>
+    <div class="widget" data-widget="collective" data-opts='{"op":"ar-decomp","bytesExpr":"2*D*E*F","axisVar":"MDP","degreeVar":"DP","label":"AllReduce = ReduceScatter + AllGather"}'></div>
     <figcaption>The decomposition, animated: the
     <span class="op op-ar">AllReduce</span> that DP runs on each
     2<i class="v v-D">D</i><span class="t-show inline" data-expr="E>1"><i class="v">E</i></span><i class="v v-F">F</i> =
@@ -191,35 +191,28 @@
   <div class="eq-live">right now, per layer, over M<sub>DP</sub> =
     <span class="t-out" data-expr="MDP" data-fmt="int"></span> mesh axes<span class="t-show inline" data-expr="E>1"> (MoE: FLOPs carry k·F, weight comms E·F)</span>:
     T<sub>math</sub> = <span class="t-out" data-expr="4*B*D*k*F/(DP*C)" data-fmt="time"></span> vs
-    T<sub>comms</sub> = <span class="t-out" data-expr="4*D*E*F/(Wici*MDP)" data-fmt="time"></span> →
-    <span class="t-if" data-expr="B/DP > (E/k)*alpha/MDP" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
+    T<sub>comms</sub> = <span class="t-out" data-expr="4*D*E*F/Wdp" data-fmt="time"></span> →
+    <span class="t-if" data-expr="B/DP > (E/k)*alphaDP" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
   </div>
+  <p class="note t-show" data-expr="gpu && DP&gt;podSize"><strong>✦ Adaptation:</strong> This FSDP collective
+  crosses NVLink domains, so W<sub>collective</sub> is the scale-out-limited
+  <span class="t-out" data-expr="Wdp" data-fmt="bw"></span>.</p>
 
   <p>Therefore, as with pure data-parallelism, we are compute bound when
   <span class="eq-i"><i class="v v-B">B</i> / <i class="v v-DP">DP</i> &gt;
-  <i class="v v-C">C</i> / <i class="v v-W">W<sub>ici</sub></i></span>, i.e.
+  <i class="v v-C">C</i> / <i class="v v-W">W<sub>collective</sub></i></span>, i.e.
   when the per-device batch size <i class="v v-B">B</i>/<i class="v v-DP">DP</i>
-  exceeds the "<span class="tm" data-g="NVLink">ICI</span> operational intensity"
-  <i class="v v-C">C</i>/<i class="v v-W">W<sub>ici</sub></i>
+  exceeds the collective fabric's operational intensity
+  <i class="v v-C">C</i>/<i class="v v-W">W<sub>collective</sub></i>
   (<span class="t-out" data-expr="C" data-fmt="e"></span> /
-  <span class="t-out" data-expr="Wici" data-fmt="e"></span> =
-  <span class="t-out" data-expr="alpha" data-fmt="int"></span> for v5p). This
+  <span class="t-out" data-expr="Wdp" data-fmt="e"></span> =
+  <span class="t-out" data-expr="alphaDP" data-fmt="int"></span> right now). This
   is great for us, because it means if our per-device batch size is big enough
   to be compute-bound for pure data-parallelism, we can — without worrying
   about leaving the compute-bound regime — simply upgrade to FSDP, saving
   ourselves a massive amount of parameter and optimizer state memory! Though
   we did have to add communication to the forward pass, this cost is
-  immaterial since it just overlaps with forward-pass
-  FLOPs.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> In
-  the language of <a href="#roofline">the roofline primer</a>: compared to
-  DP's backward pass, FSDP's forward pass has half the traffic on the network
-  clock <em>and</em> half the FLOPs on the compute clock, so both bars shrink
-  together and the ridge doesn't move. The comms fit under the compute exactly
-  when the per-chip batch <i class="v v-B">B</i>/<i class="v v-DP">DP</i> =
-  <span class="t-out" data-expr="B/DP" data-fmt="int"></span> clears the ridge
-  at <span class="t-out" data-expr="(E/k)*alpha/MDP" data-fmt="int"></span> tokens
-  (α = <span class="t-out" data-expr="alpha" data-fmt="int"></span> per mesh
-  axis, over M<sub>DP</sub> axes, ×E/k with a MoE loaded).</span></span></p>
+  immaterial since it just overlaps with forward-pass FLOPs.</p>
 
   <figure class="breakout">
     <div class="widget" data-widget="bound-meter" data-opts='{"scheme":"fsdp"}'></div>
@@ -229,13 +222,20 @@
   </figure>
 
   <div class="takeaway"><strong>Takeaway:</strong> Both FSDP and pure Data
-  Parallelism become bandwidth bound on <span class="tm" data-g="our GPU">TPUv5</span> when the batch size per device
-  is less than <span class="t-out" data-expr="alpha" data-fmt="int"></span> /
-  <i class="v v-M">M<sub>DP</sub></i>, where <i class="v v-M">M<sub>DP</sub></i>
-  is the number of mesh axes.</div>
+  Parallelism become bandwidth bound when the batch size per device is less than
+  <span class="t-out" data-expr="(E/k)*alphaDP" data-fmt="int"></span>
+  tokens on the fabric carrying the collective.<span class="sn edit"><button class="sn-ref" aria-label="edit note">Δ</button><span class="sn-body"><span class="sn-tag">edited</span> The
+  chapter reads: <span class="orig">“Both FSDP and pure Data Parallelism become
+  bandwidth bound on TPUv5 when the batch size per device is less than
+  2550&nbsp;/&nbsp;M<sub>X</sub>, where M<sub>X</sub> is the number of mesh
+  axes.”</span> — generalized so the live number selects the fabric that actually
+  carries the collective (TPU mesh axes or the GPU domain hierarchy) and picks up
+  the MoE E/k factor.</span></span></div>
 
-  <p>For example, DeepSeek-V2 (one of the only recent strong models to release
-  information about its training batch size) used a batch size of ~40M tokens.
+  <div class="t-show" data-expr="1-gpu">
+  <p>For example, borrowing only DeepSeek-V2's reported batch size as a
+  <em>dense-model thought experiment</em> (this calculation does not model its
+  expert parallelism), take a batch size of ~40M tokens.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> This qualifier is added because the source imports DeepSeek-V2's batch into a dense FSDP calculation; it does not model that MoE's expert parallelism.</span></span>
   <strong>This would allow us to scale to roughly
   <span class="t-out" data-expr="4e7*3/alpha" data-fmt="chips"></span> chips,
   or around
@@ -262,8 +262,8 @@
   </div>
 
   <div class="preset-row"><span class="preset-label">Try:</span>
-    <button class="t-preset" data-set='{"B":4e7,"MDP":3}'>DeepSeek-V2: B = 40M, all 3 axes</button>
-    <button class="t-preset" data-set='{"B":2e6,"MDP":2}'>back to page defaults</button>
+    <button class="t-preset" data-set='{"B":4e7,"MDP":3,"E":1,"k":1,"Sexp":0,"EP":1}'>DeepSeek-V2 batch as dense thought experiment: B = 40M, all 3 axes</button>
+    <button class="t-preset" data-set='{"B":2e6,"MDP":2,"E":1,"k":1,"Sexp":0,"EP":1}'>back to page defaults</button>
   </div>
 
   <p>For LLaMA-3 70B, which was trained for approximately
@@ -301,7 +301,8 @@
   </div>
 
   <div class="preset-row"><span class="preset-label">Try:</span>
-    <button class="t-preset" data-set='{"B":16000000,"MDP":3,"MFU":0.5}'>chapter's LLaMA-3 recipe: B = 16M, 3 axes, MFU 50%</button>
+    <button class="t-preset" data-set='{"B":16000000,"MDP":3,"MFU":0.5,"E":1,"k":1,"Sexp":0,"EP":1}'>chapter's LLaMA-3 recipe: B = 16M, 3 axes, MFU 50%</button>
+  </div>
   </div>
 
   <div class="note"><strong>Note on critical batch size</strong>: somewhat
@@ -311,7 +312,7 @@
   for yourself: drag <i class="v v-B">B</i> =
   <span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span>
   down and watch the verdict above flip to
-  <span class="t-if" data-expr="B/DP > (E/k)*alpha/MDP" data-then="…well, it hasn't yet" data-else="communication-bound"></span>.
+  <span class="t-if" data-expr="B/DP > (E/k)*alphaDP" data-then="…well, it hasn't yet" data-else="communication-bound"></span>.
   The hunt described at the end of this note is where the rest of this chapter
   goes.</span></span> Data parallelism and FSDP let us scale to arbitrarily
   many chips so long as we can keep increasing our batch size! However, in

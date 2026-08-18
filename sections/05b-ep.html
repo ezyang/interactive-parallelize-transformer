@@ -18,37 +18,38 @@
   <a href="#gpus">the GPU network model</a> below). One naming change
   throughout: Chapter 12 calls the expert-parallel axis <em>Z</em>; this
   edition names every parallelism degree after its scheme, so that axis is
-  rendered <i class="v v-EP">EP</i> here.</p>
+  rendered <i class="v v-EP">EP</i> here. The routed/shared-expert split and the
+  hardware-domain generalization of the H100-specific formula are AI-written
+  adaptation material, labeled again at the live estimate.</p>
 
   <div class="try t-show" data-expr="E==1">You currently have a <strong>dense</strong>
   model loaded (<i class="v">E</i> = <span class="t-out" data-expr="E" data-fmt="int"></span>,
   <i class="v">k</i> = <span class="t-out" data-expr="k" data-fmt="int"></span>), so
-  every MoE quantity in this section reduces to its dense value and the verdicts
-  below are degenerate. Click a Mixture-of-Experts preset — here, in the intro's
+  expert routing is not applicable. Click a Mixture-of-Experts preset — here, in the intro's
   frontier-models table, or in the top bar — to make this section live:
-  <button class="t-preset" data-set='{"D":7168,"F":2048,"L":61,"E":257,"k":9,"EP":64}'>DeepSeek-V3 (E=257, k=9, 64-way EP)</button>
-  <button class="t-preset" data-set='{"D":7168,"F":3072,"L":93,"E":898,"k":18,"EP":16}'>Kimi K3 (E=898, k=18)</button>
+  <button class="t-preset" data-set='{"D":7168,"F":2048,"L":61,"E":257,"k":9,"Sexp":1,"EP":64}'>DeepSeek-V3 (256 routed + 1 shared, 64-way EP)</button>
   </div>
 
   <div class="try t-show" data-expr="1-gpu">You are on a <strong>TPU</strong> hardware
-  preset. This section's AllToAll cost model is Chapter 12's switched-fabric model, so
-  its live numbers read your TPU's DCN as the cross-"node" network — click a GPU preset
-  in the top bar (or in <a href="#gpus">the GPU section</a>) to see the chapter's
-  published H100 numbers.</div>
+  preset. This section's AllToAll cost model is Chapter 12's switched GPU fabric,
+  so its live verdicts are hidden until you select a GPU preset in the top bar
+  (or in <a href="#gpus">the GPU section</a>).</div>
 
   <p>As we've already noted above, Mixture of Expert (MoE) models come with
   <i class="v">E</i> times more model weights with only <i class="v">k</i> times
   more FLOPs, making data parallelism significantly
   harder.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> In
   Chapter 12 "noted above" pointed at its Data Parallelism section; on this page that
-  passage lives at the end of <a href="#data-parallelism">Data Parallelism</a> (visible
-  with a MoE model loaded). Live here: <i class="v">E</i> =
-  <span class="t-var" data-var="E" data-min="1" data-max="2048" data-scale="log" data-snap="pow2" data-fmt="int"></span>
-  experts (counting shared), <i class="v">k</i> =
-  <span class="t-var" data-var="k" data-min="1" data-max="64" data-scale="lin" data-snap="int" data-fmt="int"></span>
-  activated per token — a weight-to-FLOPs ratio of E/k =
-  <span class="t-out" data-expr="E/k" data-fmt="x"></span>.</span></span> We can
-  mitigate this somewhat by sharding our weights along the expert dimension, i.e.
+  passage lives at the end of <a href="#data-parallelism">Data Parallelism</a>.</span></span>
+  This page's <i class="v">E</i> and <i class="v">k</i> count all experts, including
+  always-on shared experts. Expert routing instead uses
+  <span class="eq-i">E<sub>r</sub> = E − s</span> routed experts and
+  <span class="eq-i">k<sub>r</sub> = k − s</span> routed selections, where
+  <i>s</i> = <span class="t-var" data-var="Sexp" data-min="0" data-max="64" data-scale="lin" data-snap="int" data-fmt="int"></span>
+  shared experts. Right now, <i>E</i><sub>r</sub> =
+  <span class="t-out" data-expr="E-Sexp" data-fmt="int"></span> and
+  <i>k</i><sub>r</sub> = <span class="t-out" data-expr="k-Sexp" data-fmt="int"></span>.
+  We can mitigate the routed weight cost by sharding along the expert dimension, i.e.
   <span class="shape">W<sub>in</sub>[E<sub>EP</sub>, D, F]</span>. To do
   the MLP block, we need to introduce 2x
   <span class="op op-ag">AllToAll</span> to send our activations to the
@@ -58,9 +59,9 @@
   all-to-all connectivity, which makes AllToAlls, well, quite easy: each GPU just
   sends directly to the destination. For Mixture of Expert (MoE) models, we
   frequently want to do a <em>sparse or ragged AllToAll</em>, where we guarantee at
-  most <i class="v">k</i> of <i class="v v-N">N</i> shards on the output dimension
+  most <i>k</i><sub>r</sub> of <i class="v v-N">N</i> shards on the output dimension
   are non-zero; the cost is reduced by
-  <span class="eq-i">k/N</span>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Condensed
+  <span class="eq-i">k<sub>r</sub>/N</span>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> Condensed
   from Chapter 12's intra-node collectives discussion (two paragraphs on dense and
   ragged AllToAlls, with the exact expected-occupancy footnote) — see Chapter 12 for
   the full derivation. The takeaway below is carried verbatim.</span></span></p>
@@ -69,17 +70,17 @@
   array of B bytes on GPU within a single node is about
   <span class="eq-i">T<sub>comms</sub> = (B · (8 − 1)) / (8² · <i class="v v-W">W<sub>GPU egress</sub></i>)
   ≈ B / (8 · <i class="v v-W">W<sub>GPU egress</sub></i>)</span>. For a ragged
-  (top-<i class="v">k</i>) AllToAll, this is decreased further to
-  <span class="eq-i">(B · <i class="v">k</i>) / (64 · <i class="v v-W">W<sub>GPU egress</sub></i>)</span>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> On
+  (top-<i>k</i><sub>r</sub>) AllToAll, this is decreased further to
+  <span class="eq-i">(B · <i>k</i><sub>r</sub>) / (64 · <i class="v v-W">W<sub>GPU egress</sub></i>)</span>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> On
     a TPU mesh the equivalent dense cost is ≈ bytes/(4·<i class="v v-W">W</i>).
     Chapter 12 makes the comparison itself: <span class="orig">“Compare this to a
     TPU, where the cost is $B / (4W)$. Thus, within a single node, we get a 2X
     theoretical speedup in runtime ($B / 4W$ vs. $B / 8W$).”</span></span></span></div>
 
-  <p>As noted above, the cost of this
-  AllToAll<sub>EP→k</sub>(<span class="shape">[B, D, k]</span>) if it
+  <p>For the eight-GPU H100 node used in Chapter 12, the cost of this
+  AllToAll<sub>EP→k<sub>r</sub></sub>(<span class="shape">[B, D, k]</span>) if it
   spans multiple nodes is roughly
-  <span class="eq-i">T<sub>AllToAll</sub> = 2 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · (EP − 8)/(<i class="v v-W">W</i> · EP) · min(8 · <i class="v">k</i> / EP, 1)</span>,
+  <span class="eq-i">T<sub>AllToAll</sub> = 2 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · (EP − 8)/(<i class="v v-W">W</i> · EP) · min(8 · <i>k</i><sub>r</sub> / EP, 1)</span>,
   so for pure expert parallelism we
   need<span class="sn edit"><button class="sn-ref" aria-label="edit note">Δ</button><span class="sn-body"><span class="sn-tag">edited</span> The
   chapter reads: <span class="orig">“the cost of this AllToAll<sub>Z-&gt;k</sub>([B, D, k])
@@ -88,14 +89,15 @@
   <i class="v v-W">W</i>, evidently a typo (the chapter's own displayed
   T<sub>comms</sub> just below includes it); restored here.</span></span></p>
 
-  <div class="eq">
+  <div class="eq t-show" data-expr="Sexp==0">
     T<sub>math</sub> =
     <span class="frac"><span>4 · <i class="v v-B">B</i> · <i class="v">k</i> · <i class="v v-D">D</i> · <i class="v v-F">F</i></span><span>EP · <i class="v v-C">C</i><span class="sn-post"><span class="sn-tag">adaptation</span> Chapter
-    12's expression verbatim — its per-expert <i class="v v-F">F</i> is exactly
-    <a href="#scaling">this page's convention</a>.</span></span></span>
+    12's expression verbatim for a routed-only MoE. The live expression below
+    keeps shared experts in total activated compute while excluding them from
+    routing traffic.</span></span></span>
   </div>
 
-  <div class="eq">
+  <div class="eq t-show" data-expr="Sexp==0">
     T<sub>comms</sub> =
     <span class="frac"><span>4 · <i class="v v-B">B</i> · <i class="v v-D">D</i> · (EP − 8)</span><span><i class="v v-W">W</i> · EP</span></span>
     · min<span class="eq-i">(
@@ -103,50 +105,51 @@
     )</span>
   </div>
 
-  <div class="eq-live">right now, with
+  <div class="eq-live t-show" data-expr="gpu">right now, with
     <i class="v v-EP">EP</i> =
     <span class="t-var" data-var="EP" data-min="1" data-max="1024" data-scale="log" data-snap="pow2" data-fmt="int"></span>-way
-    expert parallelism over node egress <i class="v v-W">W</i> =
-    <span class="t-out" data-expr="Wdcn*podSize" data-fmt="bw"></span>:
+    expert parallelism and a fast-fabric domain of
+    <span class="t-out" data-expr="podSize" data-fmt="int"></span> GPUs:
     T<sub>math</sub> =
     <span class="t-out" data-expr="4*B*k*D*F/(EP*C)" data-fmt="time"></span> vs
     T<sub>comms</sub> =
-    <span class="t-out" data-expr="4*B*D*(max(EP-8,0)/EP)*min(8*k/EP,1)/(Wdcn*podSize)" data-fmt="time"></span>
+    <span class="t-out" data-expr="EP&lt;=podSize ? 4*B*D*((EP-1)/EP)*min((k-Sexp)/EP,1)/Wici : max(4*B*D*((podSize-1)/podSize)*min((k-Sexp)/podSize,1)/Wici,4*B*D*((EP-podSize)/EP)*min(podSize*(k-Sexp)/EP,1)/(Wdcn*podSize))" data-fmt="time"></span>
     per layer →
-    <span class="t-show inline" data-expr="EP&lt;=8">in-node — AllToAll ≈ free ✓</span><span class="t-show inline" data-expr="EP&gt;8"><span class="t-if" data-expr="4*B*k*D*F/(EP*C) &gt; 4*B*D*(max(EP-8,0)/EP)*min(8*k/EP,1)/(Wdcn*podSize)" data-then="compute-bound ✓" data-else="communication-bound ✗"><span class="sn-post"><span class="sn-tag">adaptation</span> While
-    EP ≤ 8 the AllToAll never leaves the node: the (EP − 8)
-    factor vanishes and only the cheap in-node cost from the takeaway above remains,
-    so the live T<sub>comms</sub> reads zero. Cross-node costs switch on as you drag
-    EP past a node's worth of GPUs. Try: with DeepSeek-V3 loaded, scrub
-    EP from 8 to 64 to 512 and watch min(8k/EP, 1) start
-    discounting the bill once EP &gt; 8k =
-    <span class="t-out" data-expr="8*k" data-fmt="int"></span>.</span></span></span>
+    <span class="t-show inline" data-expr="E==1">not applicable to a dense model</span>
+    <span class="t-show inline" data-expr="E&gt;1 && (k-Sexp&lt;1 || E-Sexp&lt;1 || EP&gt;E-Sexp)">invalid: require 1 ≤ k<sub>r</sub> and EP ≤ E<sub>r</sub></span>
+    <span class="t-show inline" data-expr="E&gt;1 && k-Sexp&gt;=1 && EP&lt;=E-Sexp"><span class="t-if" data-expr="4*B*k*D*F/(EP*C) &gt; (EP&lt;=podSize ? 4*B*D*((EP-1)/EP)*min((k-Sexp)/EP,1)/Wici : max(4*B*D*((podSize-1)/podSize)*min((k-Sexp)/podSize,1)/Wici,4*B*D*((EP-podSize)/EP)*min(podSize*(k-Sexp)/EP,1)/(Wdcn*podSize)))" data-then="compute-bound ✓" data-else="communication-bound ✗"></span></span>
   </div>
 
-  <p>We either need <span class="eq-i">K &gt; EP/8</span> with
-  <span class="eq-i"><i class="v v-F">F</i> &gt; α · (EP − 8)/<i class="v">k</i></span>
-  or <span class="eq-i">EP ≫ K</span> and
+  <p class="note t-show" data-expr="gpu"><strong>✦ Adaptation:</strong> The live estimate is the substantive mash-up here. Within one
+  NVLink domain it uses the finite ragged AllToAll cost from Chapter 12 rather
+  than calling that transfer free. Beyond the domain it takes the slower of the
+  local switched-fabric component and the chapter's scale-out component, replacing
+  the H100-specific 8 with the selected hardware's domain size. Shared experts
+  remain in the total <i>k</i>-wide compute, but never become routed AllToAll
+  destinations.</p>
+
+  <p>For that H100 case, Chapter 12 concludes that we either need
+  <span class="eq-i">k<sub>r</sub> &gt; EP/8</span> with
+  <span class="eq-i"><i class="v v-F">F</i> &gt; α · (EP − 8)/k<sub>r</sub></span>
+  or <span class="eq-i">EP ≫ k<sub>r</sub></span> and
   <span class="eq-i"><i class="v v-F">F</i> &gt; 8 · α</span>, where
   <span class="eq-i">α = <i class="v v-C">C</i>/<i class="v v-W">W</i></span>. This
   gives you two domains in which expert parallelism is possible, one with a small
   amount of expert parallelism (roughly 2-node) and small <i class="v v-F">F</i>,
   or one with large <i class="v v-F">F</i> and EP arbitrarily large (up
-  to <i class="v">E</i>-way expert
-  parallelism).<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span> The
-  chapter's per-expert <i class="v v-F">F</i> is this page's <i class="v v-F">F</i>,
-  so the live checks below use it directly. (The chapter writes the top-k both as
-  k and K in this sentence; both are this page's <i class="v">k</i>.)</span></span></p>
+  to <i>E</i><sub>r</sub>-way expert parallelism).</p>
 
-  <div class="eq-live">right now:
+  <div class="eq-live t-show" data-expr="gpu">right now:
     F = <span class="t-out" data-expr="F" data-fmt="si"></span> vs
-    8 · α<sub>node</sub> = 8 · C/W<sub>node</sub> =
-    <span class="t-out" data-expr="8*C/(Wdcn*podSize)" data-fmt="si"></span> →
-    <span class="t-if" data-expr="F &gt; 8*C/(Wdcn*podSize)" data-then="the large-F domain: expert parallelism can scale far beyond a node" data-else="the small-F domain: keep expert parallelism to roughly 1–2 nodes"></span>;
+    G · α<sub>domain</sub> = G · C/W<sub>domain</sub>, for G =
+    <span class="t-out" data-expr="podSize" data-fmt="int"></span>, is
+    <span class="t-out" data-expr="podSize*C/(Wdcn*podSize)" data-fmt="si"></span> →
+    <span class="t-if" data-expr="F &gt; C/Wdcn" data-then="the large-F domain: expert parallelism can scale far beyond one fast-fabric domain" data-else="the small-F domain: keep expert parallelism to roughly 1–2 fast-fabric domains"></span>;
     at the current EP =
     <span class="t-out" data-expr="EP" data-fmt="int"></span>, the small-EP
-    condition F &gt; α · (EP − 8)/k =
-    <span class="t-out" data-expr="C*max(EP-8,0)/(Wdcn*podSize*k)" data-fmt="si"></span>
-    is <span class="t-if" data-expr="F &gt; C*max(EP-8,0)/(Wdcn*podSize*k)" data-then="met ✓" data-else="not met ✗"></span>
+    condition F &gt; α · (EP − G)/k<sub>r</sub> =
+    <span class="t-out" data-expr="C*max(EP-podSize,0)/(Wdcn*podSize*max(k-Sexp,1))" data-fmt="si"></span>
+    is <span class="t-if" data-expr="F &gt; C*max(EP-podSize,0)/(Wdcn*podSize*max(k-Sexp,1))" data-then="met ✓" data-else="not met ✗"></span>
   </div>
 
   <p>You'll see both cases in practice, either a small amount of expert-parallelism
@@ -156,9 +159,10 @@
   alongside TP.</p>
 
   <div class="takeaway"><strong>Takeaway:</strong> if
-  <span class="eq-i"><i class="v v-F">F</i> &lt; 8 · <i class="v v-C">C</i> / <i class="v v-W">W<sub>node</sub></i></span>,
-  expert parallelism can span 1-2 nodes with similar (slightly lower) cost to TP, or
-  if <span class="eq-i"><i class="v v-F">F</i> &gt; 8 · <i class="v v-C">C</i> / <i class="v v-W">W<sub>node</sub></i></span>,
-  we can do a significant amount of expert parallelism (up to <i class="v">E</i>
-  nodes) with relatively low cost.</div>
+  <span class="eq-i"><i class="v v-F">F</i> &lt; G · <i class="v v-C">C</i> / <i class="v v-W">W<sub>domain</sub></i></span>,
+  expert parallelism can span roughly 1–2 fast-fabric domains with similar
+  (slightly lower) cost to TP, or if
+  <span class="eq-i"><i class="v v-F">F</i> &gt; G · <i class="v v-C">C</i> / <i class="v v-W">W<sub>domain</sub></i></span>,
+  we can do a significant amount of expert parallelism, up to
+  <i>E</i><sub>r</sub>-way EP, with relatively low cost.</div>
 </section>

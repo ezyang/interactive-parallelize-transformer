@@ -109,7 +109,7 @@
   even more. We can calculate the optimal amount of FSDP and TP in the same way
   as above:</p>
 
-  <p>Let <i class="v v-DP">DP</i> be the number of chips dedicated to FSDP and
+  <p><strong>TPU closed form.</strong> Let <i class="v v-DP">DP</i> be the number of chips dedicated to FSDP and
   <i class="v v-TP">TP</i> be the number of chips dedicated to tensor
   parallelism. Let <i class="v v-N">N</i> be the total number of chips in our
   slice with <span class="eq-i"><i class="v v-N">N</i> = <i class="v v-DP">DP</i><i class="v v-TP">TP</i></span>.
@@ -143,10 +143,35 @@
     <i class="v v-M">M<sub>TP</sub></i> =
     <span class="t-var" data-var="MTP" data-min="1" data-max="3" data-scale="lin" data-snap="int" data-fmt="int"></span>
     carrying TP<span class="t-show inline" data-expr="E>1"> (MoE: the weight gathers carry E·F, the FLOPs k·F)</span>:
-    T<sub>FSDP comms</sub> = <span class="t-out" data-expr="4*D*E*F/(TP*Wici*MDP)" data-fmt="time"></span>,
-    T<sub>TP comms</sub> = <span class="t-out" data-expr="4*B*D/(DP*Wici*MTP)" data-fmt="time"></span>,
-    T<sub>math</sub> = <span class="t-out" data-expr="4*B*D*k*F/(DP*TP*C)" data-fmt="time"></span> per layer
+    T<sub>FSDP comms</sub> = <span class="t-out" data-expr="mixF" data-fmt="time"></span>,
+    T<sub>TP comms</sub> = <span class="t-out" data-expr="mixTP" data-fmt="time"></span>,
+    T<sub>math</sub> = <span class="t-out" data-expr="mixMath" data-fmt="time"></span> per layer
   </div>
+
+  <p class="note t-show" data-expr="gpu"><strong>✦ Adaptation — GPU topology correction:</strong>
+  the TPU equations immediately above are not valid GPU substitutions. An outer
+  FSDP reduction does not become TP times faster while TP remains inside one
+  NVLink domain; the scale-out link still carries the reduction. The live clocks,
+  meter, and explorers use Chapter 12's
+  <span class="eq-i">max(T<sub>domain</sub>, T<sub>scale-out</sub>)</span> model.
+  In the equations below, bytes = 4·D·E·F and G is the selected NVLink-domain size.
+  The closed-form optimum below is therefore shown only on TPU; on GPU the
+  explorer finds the topology-aware minimum directly.</p>
+
+  <div class="t-show" data-expr="gpu">
+    <div class="eq">
+      T<sub>domain</sub> =
+      <span class="frac"><span>bytes</span><span><i class="v v-W">W<sub>GPU egress</sub></i></span></span>
+      · <span class="frac"><span>1</span><span>min(<i class="v v-TP">TP</i>, G)</span></span>
+      &nbsp;&nbsp;&nbsp;
+      T<sub>scale-out</sub> =
+      <span class="frac"><span>bytes</span><span><i class="v v-W">W<sub>domain egress</sub></i></span></span>
+      · <span class="frac"><span>G</span><span>max(G, <i class="v v-TP">TP</i>)</span></span>
+    </div>
+    <div class="eq">T<sub>FSDP comms</sub> = max(T<sub>domain</sub>, T<sub>scale-out</sub>)</div>
+  </div>
+
+  <div class="t-show" data-expr="1-gpu">
 
   <p>To simplify the analysis, we make two assumptions: first, we allow
   <i class="v v-DP">DP</i> and <i class="v v-TP">TP</i> to take on non-integer
@@ -218,8 +243,8 @@
   whole page.</span></span></p>
 
   <div class="preset-row"><span class="preset-label">Try:</span>
-    <button class="t-preset" data-set='{"DP":16,"TP":4,"B":48000,"F":32768,"MDP":2,"MTP":1}'>chapter example: 4×4×4 cube, B=48k, F=32,768</button>
-    <button class="t-preset" data-set='{"DP":512,"TP":8,"B":2000000,"F":28672,"MDP":2,"MTP":1}'>back to page defaults</button>
+    <button class="t-preset" data-set='{"DP":16,"TP":4,"B":48000,"F":32768,"MDP":2,"MTP":1,"E":1,"k":1,"Sexp":0,"EP":1}'>chapter example: 4×4×4 cube, B=48k, F=32,768</button>
+    <button class="t-preset" data-set='{"DP":512,"TP":8,"B":2000000,"F":28672,"MDP":2,"MTP":1,"E":1,"k":1,"Sexp":0,"EP":1}'>back to page defaults</button>
   </div>
 
   <div class="takeaway"><strong>Takeaway:</strong> in general, during training,
@@ -234,8 +259,9 @@
   <span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span>
   and watch the valley migrate right like √<i class="v v-B">B</i>, or widen
   <i class="v v-F">F</i> =
-  <span class="t-var" data-var="F" data-min="1024" data-max="262144" data-scale="log" data-snap="pow2" data-fmt="int"></span>
+  <span class="t-var" data-var="F" data-min="1024" data-max="262144" data-scale="log" data-snap="int" data-fmt="int"></span>
   and watch it slide left.</span></span></div>
+  </div>
 
   <figure class="breakout">
     <div class="widget" data-widget="xy-explorer" data-opts='{}'></div>
@@ -247,10 +273,13 @@
     T<sub>math</sub>, and wherever the envelope dips below it the layer is
     compute-bound. Drag the marker: it sets <i class="v v-DP">DP</i> (and
     <i class="v v-TP">TP</i> = <i class="v v-N">N</i>/<i class="v v-DP">DP</i>) for
-    the whole page. The dotted drop-line marks <i class="v v-DP">DP<sub>opt</sub></i> =
-    <span class="t-out" data-expr="sqrt(B*MDP*N/(E*F*MTP))" data-fmt="sig3"></span>.</figcaption>
+    the whole page. The dotted drop-line marks
+    <span class="t-show inline" data-expr="1-gpu">the TPU closed-form
+    <i class="v v-DP">DP<sub>opt</sub></i> =
+    <span class="t-out" data-expr="max(1,min(N,sqrt(B*MDP*N/(E*F*MTP))))" data-fmt="sig3"></span></span><span class="t-show inline" data-expr="gpu">the numerically best constrained continuous split under the GPU hierarchy</span>.</figcaption>
   </figure>
 
+  <div class="t-show" data-expr="1-gpu">
   <p>Now let's return to the question we've been asking of all our parallelism
   strategies: <strong>under what conditions will we be
   compute-bound?</strong> Since we can overlap FLOPs and comms, we are
@@ -354,6 +383,7 @@
   threshold — the flip lands right at the ridge (assuming
   <i class="v v-DP">DP</i> is near <i class="v v-DP">DP<sub>opt</sub></i>; if it's far off, the flip
   comes sooner).</span></span></p>
+  </div>
 
   <figure class="breakout">
     <div class="widget" data-widget="bound-meter" data-opts='{"scheme":"mixed"}'></div>
@@ -365,13 +395,14 @@
     <span class="t-out" data-expr="TP" data-fmt="int"></span>.</figcaption>
   </figure>
 
-  <div class="takeaway"><strong>Takeaway:</strong> combining tensor parallelism
+  <div class="takeaway t-show" data-expr="1-gpu"><strong>Takeaway:</strong> combining tensor parallelism
   with FSDP allows us to drop to a
   <i class="v v-B">B</i>/<i class="v v-N">N</i> of
   <span class="eq-i"><span class="frac"><span>2550<sup>2</sup></span><span>2<i class="v v-F">F</i></span></span></span>.
   This lets us handle a batch of as little as 100 per chip, which is roughly a
   factor of eight smaller than we could achieve with just FSDP.</div>
 
+  <div class="t-show" data-expr="1-gpu">
   <p>Below we plot the ratio of FLOPs to comms time for mixed FSDP + TP,
   comparing it both to only tensor parallelism (TP) and only data parallelism
   (FSDP), on a representative 4x4x4 chip array. While pure FSDP parallelism
@@ -399,16 +430,13 @@
   batch size where this is lower than all comms costs is strictly comms bound.
   You'll notice the black curve intersects the aqua curve at about
   <span class="eq-i">4e5</span>, as
-  predicted.<span class="sn edit"><button class="sn-ref" aria-label="edit note">Δ</button><span class="sn-body"><span class="sn-tag">edited</span> The
-  chapter reads: <span class="orig">“You'll notice the black curve intersects
-  the green curve at about 4e5, as predicted.”</span> — the mixed FSDP + TP
-  curve is aqua in this page's palette, so the color word was
-  changed.<span class="sn-post"><span class="sn-tag">adaptation</span>
+  predicted.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
   On the live chart that crossing sits at
   <i class="v v-B">B</i> = <i class="v v-N">N</i>·α²<span class="t-show inline" data-expr="E>1">·<i class="v">E</i></span>/(<i class="v v-M">M<sub>DP</sub></i>·<i class="v v-M">M<sub>TP</sub></i>·<span class="t-show inline" data-expr="E>1"><i class="v">k</i>²·</span><i class="v v-F">F</i>) =
   <span class="t-out" data-expr="N*alpha*alpha*E/(MDP*MTP*k*k*F)" data-fmt="tokens"></span>
   total tokens; the chapter's 4e5 is this same formula evaluated at its
-  16x16x16, F ≈ 30k scenario.</span></span></span></p>
+  16x16x16, F ≈ 30k scenario.</span></span></p>
+  </div>
 
   <p>Here's an interactive animation to play with this, showing the total
   compute time and communication time for different batch sizes:</p>
@@ -420,8 +448,8 @@
     chips. Dashed ink: T<sub>math</sub>, the matmul FLOPs — any comms curve
     sitting above it means that scheme is comms-bound at that batch. Blue:
     FSDP-only comms, flat, because weights don't hear the batch size. Orange:
-    TP-only comms, rising in lock-step with T<sub>math</sub>. Aqua: optimally
-    mixed FSDP + TP, rising like √<i class="v v-B">B</i>. Drag the vertical
+    TP-only comms, rising in lock-step with T<sub>math</sub>. Aqua: the best
+    constrained continuous mixed FSDP + TP split<span class="t-show inline" data-expr="1-gpu">, rising like √<i class="v v-B">B</i></span><span class="t-show inline" data-expr="gpu"> under the piecewise GPU hierarchy</span>. Drag the vertical
     marker to set <i class="v v-B">B</i>; flip the view toggle between absolute
     times and the T<sub>math</sub>/T<sub>comms</sub> ratio, where any curve
     above 1 is compute-bound.</figcaption>

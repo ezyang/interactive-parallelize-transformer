@@ -23,12 +23,7 @@
   the model and move the activations during the layer — this is called
   &ldquo;1D model parallelism&rdquo; or Megatron sharding
   (<a href="https://arxiv.org/abs/1909.08053">Shoeybi et al. 2019</a>). This can
-  unlock a smaller efficient batch size per <span class="tm">pod</span>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
-  This is the flat orange line from <a href="#roofline">the roofline primer</a>:
-  when the <em>activations</em> move, the comms cost scales with the batch just
-  as the compute does, so its efficiency doesn&rsquo;t hinge on the per-chip
-  batch at all — which is exactly why it can unlock a smaller efficient batch
-  per <span class="tm">pod</span>.</span></span> The figure below shows an example of a single matrix
+  unlock a smaller efficient batch size per <span class="tm">pod</span>. The figure below shows an example of a single matrix
   sharded in this way:</p>
 
   <figure class="breakout">
@@ -137,8 +132,8 @@
     <span class="t-var" data-var="MTP" data-min="1" data-max="3" data-scale="lin" data-snap="int" data-fmt="int"></span>
     <span class="tm" data-g="NVLink">ICI</span> axes carrying <i class="v v-TP">TP</i><span class="t-show inline" data-expr="E>1"> (MoE: the sharded math runs through the activated width k·F)</span>:
     <span class="t-out" data-expr="4*B*D*k*F/(TP*C)" data-fmt="time"></span> of math vs
-    <span class="t-out" data-expr="4*B*D/(Wici*MTP)" data-fmt="time"></span> of comms →
-    <span class="t-if" data-expr="k*F &gt; TP*alpha/MTP" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
+    <span class="t-out" data-expr="4*B*D/Wtp" data-fmt="time"></span> of comms →
+    <span class="t-if" data-expr="k*F &gt; TP*alphaTP" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>
   </div>
 
   <p>Noting that we want compute cost to be greater than comms cost, we
@@ -147,8 +142,8 @@
   <em>both</em> clocks, so the batch cancels out of the ratio. This is the flat
   orange line from <a href="#roofline">the primer</a>: tensor parallelism&rsquo;s
   compute-to-comms ratio is pinned at
-  <span class="t-show inline" data-expr="E>1"><i class="v">k</i> · </span><i class="v v-F">F</i> · <i class="v v-M">M<sub>TP</sub></i> / (<i class="v v-TP">TP</i> · α) =
-  <span class="t-out" data-expr="k*F*MTP/(TP*alpha)" data-fmt="x"></span> no matter
+  <span class="t-show inline" data-expr="E>1"><i class="v">k</i> · </span><i class="v v-F">F</i> / (<i class="v v-TP">TP</i> · α<sub>TP</sub>) =
+  <span class="t-out" data-expr="k*F/(TP*alphaTP)" data-fmt="x"></span> no matter
   the batch — a weight-moving scheme can hide its comms behind more tokens per
   chip, but no batch size can raise this bar.</span></span></p>
 
@@ -170,16 +165,20 @@
   </div>
   <div class="eq-live">right now:
     <i class="v v-F">F</i> =
-    <span class="t-var" data-var="F" data-min="1024" data-max="262144" data-scale="log" data-snap="pow2" data-fmt="si"></span>
+    <span class="t-var" data-var="F" data-min="1024" data-max="262144" data-scale="log" data-snap="int" data-fmt="si"></span>
     <span class="t-show inline" data-expr="E>1">(activated width k·F =
     <span class="t-out" data-expr="k*F" data-fmt="si"></span> — the width the
     sharded math actually runs through)</span>
-    vs <i class="v v-TP">TP</i> · α / <i class="v v-M">M<sub>TP</sub></i> =
-    <span class="t-out" data-expr="TP*alpha/MTP" data-fmt="si"></span>
+    vs <i class="v v-TP">TP</i> · α<sub>TP</sub> =
+    <span class="t-out" data-expr="TP*alphaTP" data-fmt="si"></span>
     at <i class="v v-TP">TP</i> =
     <span class="t-var" data-var="TP" data-min="1" data-max="256" data-scale="log" data-snap="pow2" data-fmt="int"></span>
-    → <span class="t-if" data-expr="k*F &gt; TP*alpha/MTP" data-then="under the roof — compute-bound ✓" data-else="over the roof — communication-bound ✗"></span>
+    → <span class="t-if" data-expr="k*F &gt; TP*alphaTP" data-then="under the roof — compute-bound ✓" data-else="over the roof — communication-bound ✗"></span>
   </div>
+  <p class="note t-show" data-expr="gpu && TP&gt;podSize"><strong>✦ Adaptation:</strong> This TP collective
+  spans NVLink domains. The live clock therefore uses
+  <span class="t-out" data-expr="Wtp" data-fmt="bw"></span> scale-out-limited
+  bandwidth rather than the local <span class="t-out" data-expr="Wici" data-fmt="bw"></span>.</p>
 
   <p>Thus for instance, for <span class="tm" data-g="our GPU">TPUv5p</span>,
   <span class="eq-i"><i class="v v-C">C</i>/<i class="v v-W">W<sub>ici</sub></i></span> =
@@ -188,13 +187,7 @@
   <span class="eq-i"><i class="v v-TP">TP</i> &lt; <i class="v v-F">F</i> / <span class="t-out" data-expr="alpha" data-fmt="int"></span></span>.
   When we have multiple <span class="tm" data-g="NVLink">ICI</span> axes, our T<sub>comms</sub> is reduced by a factor of
   <i class="v v-M">M<sub>TP</sub></i>, so we get
-  <span class="eq-i"><i class="v v-TP">TP</i> &lt; <i class="v v-M">M<sub>TP</sub></i> · <i class="v v-F">F</i> / <span class="t-out" data-expr="alpha" data-fmt="int"></span></span>.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
-  Try it on the meter below: double <i class="v v-TP">TP</i> =
-  <span class="t-var" data-var="TP" data-min="1" data-max="256" data-scale="log" data-snap="pow2" data-fmt="int"></span>
-  (press ↑ with it focused) and keep doubling until the verdict flips. Then drag
-  <i class="v v-B">B</i> =
-  <span class="t-var" data-var="B" data-min="1e4" data-max="1e9" data-scale="log" data-snap="125" data-fmt="tokens"></span>
-  as hard as you like and confirm the batch is powerless to flip it back.</span></span></p>
+  <span class="eq-i"><i class="v v-TP">TP</i> &lt; <i class="v v-M">M<sub>TP</sub></i> · <i class="v v-F">F</i> / <span class="t-out" data-expr="alpha" data-fmt="int"></span></span>.</p>
 
   <figure class="breakout">
     <div class="widget" data-widget="bound-meter" data-opts='{"scheme":"tp"}'></div>
@@ -207,12 +200,13 @@
 
   <div class="takeaway"><strong>Takeaway:</strong> Tensor Parallelism becomes
   communication bound when
-  <span class="eq-i"><i class="v v-TP">TP</i> &gt; <i class="v v-M">M<sub>TP</sub></i> · <i class="v v-F">F</i> / <span class="t-out" data-expr="alpha" data-fmt="int"></span></span>.
+  <span class="eq-i"><i class="v v-TP">TP</i> · α<sub>TP</sub> &gt; <i class="v v-F">F</i></span>
+  (or <i class="v">k</i>·<i class="v v-F">F</i> for the page's equal-width MoE approximation).
   For most models this is between 8 and 16-way tensor
   parallelism.<span class="t-show inline" data-expr="gpu"><span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
-  On GPUs the same bound holds with <i class="v v-W">W</i> read as the per-GPU
-  NVLink egress bandwidth, which generally pins tensor parallelism inside a
-  single node (<i class="v v-TP">TP</i> ≤ 8) or at most two (<a href="#gpus">details</a>).</span></span></span></div>
+  On GPUs the live α<sub>TP</sub> changes when TP leaves the selected machine's
+  NVLink domain (8 GPUs on H100/B200, 72 on NVL72), which generally pins TP
+  inside one domain or at most two (<a href="#gpus">details</a>).</span></span></span></div>
 
   <p><strong>Note that this doesn't depend on the precision of the
   computation</strong>, since e.g. for int8, on <span class="tm" data-g="our GPU">TPUv5p</span>,
@@ -230,17 +224,18 @@
   scrub <i class="v v-C">C</i> =
   <span class="t-var" data-var="C" data-min="1e13" data-max="5e15" data-scale="log" data-fmt="flops"></span>:
   faster chips shrink <i class="v v-TP">TP<sub>max</sub></i> =
-  <span class="t-out" data-expr="MTP*k*F/alpha" data-fmt="sig3"></span>, which is
+  <span class="t-out" data-expr="k*F/alphaTP" data-fmt="sig3"></span> on the
+  fabric carrying the current TP collective, which is
   why each hardware generation makes tensor parallelism a little harder to
   hide.</span></span></p>
 
   <div class="preset-row"><span class="preset-label">Load:</span>
     <button class="t-preset" data-set='{"D":8192,"F":28672,"L":80,"E":1,"k":1}'>LLaMA-3 70B</button>
-    <button class="t-preset" data-set='{"D":3072,"F":49152,"L":28,"E":1,"k":1}'>Gemma 7B</button>
-    <button class="t-preset" data-set='{"D":8192,"F":28672,"L":80,"TP":8}'>chapter defaults</button>
+    <button class="t-preset" data-set='{"D":3072,"F":24576,"L":28,"E":1,"k":1}'>Gemma 7B</button>
+    <button class="t-preset" data-set='{"D":8192,"F":28672,"L":80,"E":1,"k":1,"Sexp":0,"EP":1,"TP":8}'>chapter defaults</button>
   </div>
 
-  <ul>
+  <ul class="t-show" data-expr="1-gpu">
     <li>On TPUv5p with LLaMA 3-70B with <span class="eq-i">D = 8192</span>,
     <span class="eq-i">F ≈ 30,000</span>, we can comfortably do 8-way tensor
     parallelism, but will be communication bound on 16 way tensor parallelism.
@@ -255,17 +250,19 @@
     <span class="t-if" data-expr="28672 &gt; 16*alpha/MTP" data-then="compute-bound ✓" data-else="communication-bound ✗"></span>,
     and the required F for 8-way sharding is 8 · α / <i class="v v-M">M<sub>TP</sub></i> =
     <span class="t-out" data-expr="8*alpha/MTP" data-fmt="si"></span>.</span></span></li>
-    <li>For Gemma 7B, <span class="eq-i">F ≈ 50k</span>, so we become
-    communication bound with 19-way tensor parallelism. That means we could
-    likely do 16-way and still see good
-    performance.<span class="sn adapt"><button class="sn-ref" aria-label="adaptation note">✦</button><span class="sn-body"><span class="sn-tag">adaptation</span>
-    Check it live at the current hardware: with Gemma 7B's F = 49,152 pinned
-    (its GeGLU feedforward folds two fused gating up-projections into what we
-    count as <i class="v v-F">F</i> — hence much larger than the usual 4·D),
-    <i class="v v-TP">TP<sub>max</sub></i> =
-    <span class="t-out" data-expr="MTP*49152/alpha" data-fmt="sig3"></span>-way,
+    <li>For Gemma 7B, this page's ignore-gating convention uses the config's
+    <span class="eq-i">F = 24,576</span>. On TPU v5p that gives
+    <i class="v v-TP">TP<sub>max</sub></i> ≈ 9.64, so 8-way fits but 16-way is
+    communication-bound.<span class="sn edit"><button class="sn-ref" aria-label="edit note">Δ</button><span class="sn-body"><span class="sn-tag">edited</span>
+    The chapter reads <span class="orig">“For Gemma 7B, F ≈ 50k, so we become
+    communication bound with 19-way tensor parallelism. That means we could likely
+    do 16-way and still see good performance.”</span> Its ≈50k adds Gemma's two
+    gated input projections together, which is inconsistent with this chapter's
+    two-main-matmul model. At the currently selected TPU, the corrected
+    <i class="v v-TP">TP<sub>max</sub></i> is
+    <span class="t-out" data-expr="24576/alphaTP" data-fmt="sig3"></span>-way,
     and 16-way is
-    <span class="t-if" data-expr="49152 &gt; 16*alpha/MTP" data-then="still under the roof ✓" data-else="over the roof ✗"></span>.</span></span></li>
+    <span class="t-if" data-expr="24576 &gt; 16*alphaTP" data-then="still under the roof ✓" data-else="over the roof ✗"></span>.</span></span></li>
   </ul>
 
 </section>

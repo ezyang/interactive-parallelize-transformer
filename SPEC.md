@@ -32,8 +32,8 @@ Variables, defaults, meaning (all plain numbers):
 | key | default | meaning |
 |---|---|---|
 | C | 4.59e14 | bf16 FLOPs/s per chip |
-| Wici | 1.8e11 | ICI bandwidth per axis, bidirectional, bytes/s |
-| Wdcn | 6.25e9 | DCN egress bandwidth per chip, bytes/s |
+| Wici | 1.8e11 | TPU ICI bandwidth per axis (bidirectional), or GPU NVLink egress per GPU (one-way), bytes/s |
+| Wdcn | 6.25e9 | TPU DCN egress or GPU scale-out egress share per chip/GPU, bytes/s |
 | HBM | 96e9 | HBM bytes per chip |
 | D | 8192 | d_model |
 | F | 28672 | d_ff |
@@ -52,9 +52,10 @@ Variables, defaults, meaning (all plain numbers):
 | effC | 0.72 | sustained GEMM fraction of spec peak (per-preset, from SOURCES.md) |
 | effIci | 0.95 | achieved collective fraction of spec in-pod bandwidth |
 | effDcn | 0.90 | achieved fraction of spec cross-pod bandwidth |
-| E | 1 | MoE: routed experts per layer (1 = dense); set by model presets |
-| k | 1 | MoE: experts activated per token (routed top-k; shared experts are folded into F, not k) |
-| EP | 8 | expert-parallel degree (chapter-12 calls this axis Z) |
+| E | 1 | MoE: total experts per layer, including shared (1 = dense); set by model presets |
+| k | 1 | MoE: experts activated per token, including shared |
+| Sexp | 0 | always-on shared experts included in both E and k; routed Er=E−Sexp and kr=k−Sexp |
+| EP | 1 | expert-parallel degree (chapter-12 calls this axis Z) |
 
 ### HARDWARE EPIC (staged; SOURCES.md is ground truth once it exists)
 ① SOURCES.md: every hardware number the page uses — spec AND measured — with a
@@ -91,6 +92,8 @@ M_DP/M_TP. Rules:
 - N = DP·TP remains the mixed-sharding chip budget (derived). EP and PP are
   scheme-scoped variables, NOT extra factors of N — the source never builds a
   4D mesh and neither do we.
+- Composite worked examples state the full DP·TP·EP·PP product separately;
+  scheme-local widgets do not claim that N reconstructs the whole run.
 - The chapter's literal letters survive only where they mean something else:
   the notation table's third-mesh-axis Z row (live value "—"), M_Z in the
   multi-axis note, and the appendix's matrix X/Y.
@@ -113,22 +116,30 @@ The ambiguity ("is F sparse or dense?") is resolved the way chapter 12 resolves 
   | FLOPs / activation width F (T_math numerators, TP's sharded width, activation memory D+2F) | k·F |
   | weight bytes / weight width F (DP-AllReduce & FSDP-gather comms, param counts) | E·F |
   Consequences (all must reduce to the dense form at E=k=1):
-  T_math = 4·B·D·k·F/(shards·C) fwd (8·… bwd); DP/FSDP T_comms = 4·D·E·F/(W·MDP) fwd
-  (8·… bwd); DP/FSDP bound B/DP > (E/k)·α/MDP; TP bound TP < MTP·k·F/α; mixed
+  T_math = 4·B·D·k·F/(shards·C) fwd (8·… bwd); DP/FSDP T_comms = 4·D·E·F/W_collective fwd
+  (8·… bwd); DP/FSDP bound B/DP > (E/k)·C/W_collective; TP bound TP·C/W_collective < k·F; TPU mixed
   T_fsdp = 4·D·E·F/(TP·W·MDP), T_tp unchanged, X_opt = √(B·MDP·N/(E·F·MTP)), floor
   B/N > α²·E/(MDP·MTP·k²·F); P (param count) = 2·D·E·F·L; activation memory
   2·L·B·(D+2·k·F); pipeline hop unchanged (2·B·D/Mmicro); pipeline stage compute
   4·(B/Mmicro)·D·k·F·ceil(L/PP)/C; EP exactly chapter-12's: T_math = 4·B·k·D·F/(EP·C).
-- Model-table presets store per-expert F (e.g. DeepSeek-V3 {D:7168, F:2048, L:61,
-  E:257, k:9}; Kimi K3 {7168, 3072, 93, 898, 18}; GLM-5.2 {6144, 2048, 78, 257, 9};
-  DSv4-Pro {7168, 3072, 61, 385, 7}; Qwen3.8 {8192, 2048, 92, 513, 11}; Inkling
-  {6144, 3072, 66, 258, 8}; MiniMax-M3 {6144, 3072, 60, 129, 5}).
+- Model-table presets store per-expert F and shared count Sexp (e.g. DeepSeek-V3
+  {D:7168, F:2048, L:61, E:257, k:9, Sexp:1}; GLM-5.2 {6144, 2048, 78, 257, 9, 1};
+  DSv4-Pro {7168, 3072, 61, 385, 7, 1}; Qwen3.8 {8192, 2048, 92, 513, 11, 1};
+  Inkling {6144, 3072, 66, 258, 8, 2}; MiniMax-M3 {6144, 3072, 60, 129, 5, 1}). Kimi K3 is
+  reference-only rather than a live preset: its routed experts use latent D=3584
+  with F=3072, so the page's single residual-D expert model cannot represent it.
 - **MoE data-parallelism penalty** (now exact): B/DP > (E/k)·C/W_collective.
-- **Expert parallelism** (shard experts EP ways, AllToAll activations to their experts and back):
-  T_math = 4·B·D·F/(EP·C). GPU cross-node AllToAll (chapter 12):
-  T_comms = 4·B·D·((EP−8)/EP)·min(8·k/EP, 1)/Wdcn·podSize-form — use chapter-12's exact expressions;
-  guard EP ≤ 8 (in-node) as ≈free on the NVLink domain. Two viable regimes (chapter-12 takeaway):
-  small EP (1–2 nodes) with small F, or F > 8·C/W_node and EP up to E.
+- **Expert parallelism** (shard routed experts EP ways, AllToAll activations to their experts and back):
+  routed Er=E−Sexp and kr=k−Sexp; require EP≤Er. Under the equal-width approximation,
+  T_math = 4·B·k·D·F/(EP·C). The static Chapter-12 cross-node formula is the G=8,
+  Sexp=0 case. Live GPU math uses G=podSize, kr for routed traffic, a finite intra-domain
+  AllToAll branch for EP≤G, and the slower of intra-domain and scale-out components for EP>G.
+- **GPU collective topology:** `Core.collectiveBandwidth(S, degree, axes)` uses
+  Wici inside one NVLink domain and `min(Wici, Wdcn·podSize)` above it. Mixed
+  FSDP+TP uses Chapter 12's hierarchical outer-reduction model:
+  `max(bytes/(Wici·min(TP,G)), bytes/(Wdcn·max(G,TP)))` when DP·TP exceeds G.
+- **Cross-domain pod widget:** K=`ceil(N/podSize)` balanced domains, batch B/K,
+  and effective domain size N/K. No DCN cost is charged when K=1.
 
 ### V3 layout contract — Chapter-12 merge (supersedes the "#gpus section" layout above)
 The GPU chapter is no longer a separate appendix; it is INTERLEAVED, primarily
@@ -142,7 +153,9 @@ material that is genuinely new gets its own place in the flow:
 - Chapter-12's pipelining reasons merge into #pipelining as gpu-conditional notes.
 - `#gpus` shrinks to: the network mapping, the bandwidth table, collective costs
   + SHARP + the empirical-370GB/s caveat, and the worked GPU examples. Same id.
-- The takeaways tables gain an EP row (formulas per above).
+- The GPU section restores Chapter 12's TLDR/practical recipe. The original dense
+  TPU takeaways remain dense-only; EP is summarized in its own section instead
+  of being spliced into the source table.
 | pD | 5120 | problems: LLaMA-2 13B d_model |
 | pF | 13824 | problems: d_ff |
 | pL | 40 | problems: layers |
@@ -153,12 +166,14 @@ material that is genuinely new gets its own place in the flow:
 | pB | 16e6 | problems: batch tokens |
 
 Derived values available in every expression (recomputed each change):
-`N` (=DP*TP), `alpha` (=C/Wici), `alphaDcn` (=C/Wdcn), `P` (=2*D*F*L, MLP-stack param
-count), plus all of `Math` (sqrt, min, max, pow, log2, ceil, floor, round, abs, PI, exp, log10).
+`N`, `alpha`, `alphaDcn`, topology-aware `Wdp`/`Wtp` and `alphaDP`/`alphaTP`,
+`mixF`/`mixTP`/`mixMath`/`mixComms`, routed `Er`/`kr`, and `P`
+(=2*D*E*F*L), plus the listed `Math` functions.
 
 ### Core API (js/core.js — already implemented)
 
 - `Core.get()` → state object (do not mutate).
+- `Core.getEffective()` → spec/measured effective state consumed by widgets.
 - `Core.set({key: value, ...})` → updates, clamps, notifies all subscribers.
 - `Core.subscribe(fn)` → fn(state) on every change (and NOT at registration).
 - `Core.evalExpr(str)` → compiled evaluator; `Core.evalNow(str)` → value now.
@@ -167,6 +182,8 @@ count), plus all of `Math` (sqrt, min, max, pow, log2, ceil, floor, round, abs, 
   `bytes` 42.0 TB · `e` 4.6e14 · `flops` 459 TFLOP/s · `bw` 180 GB/s ·
   `time` auto ns/µs/ms/s/min/hr/days · `days` 17.3 days · `pct` 38% · `x` 3.2× ·
   `tokens` same as si · `chips` same as int.
+- `Core.collectiveBandwidth(S, degree, meshAxes)` and
+  `Core.mixedTimes(S, dp, tp[, batch])` centralize topology-aware live clocks.
 - `Core.onDimHover(fn)` → fn(dimOrNull) when a dimension token (B/D/F/DP/TP/L/C/W/N) is
   hovered anywhere; widgets may highlight matching parts. Fire your own via
   `Core.dimHover('B')` / `Core.dimHover(null)`.

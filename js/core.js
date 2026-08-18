@@ -15,7 +15,7 @@
     DP: 512, TP: 8, MDP: 2, MTP: 1,
     PP: 4, Mmicro: 8,
     MFU: 0.4, podSize: 8960, gpu: 0,
-    E: 1, k: 1, EP: 8,
+    E: 1, k: 1, Sexp: 0, EP: 1,
     meas: 0, effC: 0.72, effIci: 0.95, effDcn: 0.90,
     pD: 5120, pF: 13824, pL: 40, pNH: 40, pNK: 40, pH: 128, pV: 32000, pB: 16e6,
   };
@@ -30,7 +30,7 @@
     DP: [1, 1048576], TP: [1, 8192], MDP: [1, 3], MTP: [1, 3],
     PP: [1, 64], Mmicro: [1, 128],
     MFU: [0.05, 1], podSize: [1, 65536], gpu: [0, 1],
-    E: [1, 2048], k: [1, 64], EP: [1, 1024],
+    E: [1, 2048], k: [1, 64], Sexp: [0, 64], EP: [1, 1024],
     meas: [0, 1], effC: [0.2, 1], effIci: [0.2, 1], effDcn: [0.2, 1],
     pD: [128, 65536], pF: [128, 262144], pL: [1, 500], pNH: [1, 512], pNK: [1, 512],
     pH: [16, 1024], pV: [1000, 1e6], pB: [1, 1e10],
@@ -58,16 +58,75 @@
     return es;
   }
 
+  // Effective collective bandwidth for the selected topology. TPU collectives
+  // can use multiple torus axes concurrently; GPU collectives use per-GPU
+  // NVLink egress inside one switched domain and become limited by aggregate
+  // node/domain egress once the collective spans multiple domains.
+  function collectiveBandwidth(S, degree, meshAxes) {
+    const d = Math.max(1, Number(degree) || 1);
+    const axes = Math.max(1, Number(meshAxes) || 1);
+    if (!S.gpu) return S.Wici * axes;
+    if (d <= S.podSize) return S.Wici;
+    return Math.min(S.Wici, S.Wdcn * S.podSize);
+  }
+
+  // Forward-pass clocks for a fixed DP×TP mixed group. On GPUs the FSDP
+  // reduction is hierarchical: sharding the array over TP helps the outer
+  // reduction only after TP itself spans multiple NVLink domains.
+  function mixedTimes(S, dp, tp, batch) {
+    dp = Math.max(1, Number(dp) || 1);
+    tp = Math.max(1, Number(tp) || 1);
+    const B = batch == null ? S.B : Math.max(1, Number(batch) || 1);
+    const N = dp * tp;
+    const weightBytes = 4 * S.D * S.E * S.F;
+    const activationBytes = 4 * B * S.D / dp;
+    let tfsdp, ttp;
+    if (!S.gpu) {
+      tfsdp = weightBytes / (tp * S.Wici * S.MDP);
+      ttp = activationBytes / (S.Wici * S.MTP);
+    } else {
+      const G = Math.max(1, S.podSize);
+      if (N <= G) {
+        tfsdp = weightBytes / (Math.min(tp, G) * S.Wici);
+      } else {
+        const atDomain = weightBytes / (S.Wici * Math.min(tp, G));
+        const atScaleOut = weightBytes / (S.Wdcn * Math.max(G, tp));
+        tfsdp = Math.max(atDomain, atScaleOut);
+      }
+      ttp = activationBytes / collectiveBandwidth(S, tp, 1);
+    }
+    return {
+      N, tfsdp, ttp,
+      tmath: (4 * B * S.D * S.k * S.F) / (N * S.C),
+      tcomms: Math.max(tfsdp, ttp),
+    };
+  }
+
   // ---------- derived + expression evaluation ----------
   const MATH_KEYS = ["sqrt", "min", "max", "pow", "ceil", "floor", "round", "abs", "exp", "PI"];
   const SPEC_KEYS = ["Cspec", "WiciSpec", "WdcnSpec"];
-  const EXPR_ARGS = KEYS.concat(["N", "alpha", "alphaDcn", "P", "log2", "log10"]).concat(SPEC_KEYS).concat(MATH_KEYS);
+  const DERIVED_KEYS = ["N", "alpha", "alphaDcn", "Wdp", "Wtp", "alphaDP", "alphaTP",
+    "mixF", "mixTP", "mixMath", "mixComms", "Er", "kr", "P", "log2", "log10"];
+  const EXPR_ARGS = KEYS.concat(DERIVED_KEYS).concat(SPEC_KEYS).concat(MATH_KEYS);
 
   function derivedVals() {
+    const es = effState();
+    const Wdp = collectiveBandwidth(es, state.DP, state.MDP);
+    const Wtp = collectiveBandwidth(es, state.TP, state.MTP);
+    const mix = mixedTimes(es, state.DP, state.TP);
     return {
       N: state.DP * state.TP,
-      alpha: effOf("C") / effOf("Wici"),
-      alphaDcn: effOf("C") / effOf("Wdcn"),
+      alpha: es.C / es.Wici,
+      alphaDcn: es.C / es.Wdcn,
+      Wdp, Wtp,
+      alphaDP: es.C / Wdp,
+      alphaTP: es.C / Wtp,
+      mixF: mix.tfsdp,
+      mixTP: mix.ttp,
+      mixMath: mix.tmath,
+      mixComms: mix.tcomms,
+      Er: Math.max(0, state.E - state.Sexp),
+      kr: Math.max(0, state.k - state.Sexp),
       // F is per-expert width (chapter-12 convention): weights scale with E·F
       P: 2 * state.D * state.E * state.F * state.L,
       log2: Math.log2, log10: Math.log10,
@@ -77,7 +136,7 @@
     const d = derivedVals();
     const es = effState();
     const vals = KEYS.map((k) => es[k]);
-    vals.push(d.N, d.alpha, d.alphaDcn, d.P, d.log2, d.log10);
+    for (const dk of DERIVED_KEYS) vals.push(d[dk]);
     for (const sk of SPEC_KEYS) vals.push(es[sk]);
     for (const mk of MATH_KEYS) vals.push(Math[mk]);
     return vals;
@@ -190,6 +249,21 @@
     scheduleHash();
   }
 
+  function normalizeExpertState() {
+    let changed = false;
+    function assign(k, v) {
+      if (state[k] !== v) { state[k] = v; changed = true; }
+    }
+    if (state.E <= 1) {
+      assign("E", 1); assign("k", 1); assign("Sexp", 0); assign("EP", 1);
+      return changed;
+    }
+    assign("k", Math.min(state.E, Math.max(1, state.k)));
+    assign("Sexp", Math.min(state.E - 1, state.k - 1, Math.max(0, state.Sexp)));
+    assign("EP", Math.min(Math.max(1, state.E - state.Sexp), Math.max(1, state.EP)));
+    return changed;
+  }
+
   function set(patch) {
     let changed = false;
     for (const k in patch) {
@@ -197,13 +271,14 @@
       const v = clamp(k, Number(patch[k]));
       if (isFinite(v) && state[k] !== v) { state[k] = v; changed = true; }
     }
+    changed = normalizeExpertState() || changed;
     if (changed) notify();
   }
 
   // The reset button is for the scrubs. Keys owned by the top-bar pickers —
   // model shape, hardware, spec/measured — survive a reset (the dropdowns are
   // easy to change on their own).
-  const PRESET_KEYS = ["D", "F", "L", "E", "k",
+  const PRESET_KEYS = ["D", "F", "L", "E", "k", "Sexp",
     "C", "Wici", "Wdcn", "HBM", "podSize", "gpu", "MDP", "MTP",
     "effC", "effIci", "effDcn", "meas"];
   const RESET_KEYS = KEYS.filter((k) => PRESET_KEYS.indexOf(k) < 0);
@@ -248,6 +323,7 @@
       }
     }
     for (const k in patch) state[k] = clamp(k, patch[k]);
+    normalizeExpertState();
   }
   // back/forward: re-apply the state a hash entry recorded. Plain #anchor
   // hashes (no "=") are TOC navigation — leave the state alone.
@@ -362,7 +438,8 @@
     PP: "Pipeline stages (the chapter's Z)", Mmicro: "Microbatches",
     MFU: "Assumed model FLOPs utilization for wall-clock estimates — always applied against SPEC peak (Cspec), so measured mode doesn't double-count the GEMM shortfall", podSize: "Chips per pod (ICI / NVLink domain)",
     gpu: "GPU switched-fabric flag (0 = TPU mesh)", E: "Experts per layer (total, incl. shared)",
-    k: "Experts activated per token (incl. shared)", EP: "Expert-parallel degree (chapter 12's Z)",
+    k: "Experts activated per token (incl. shared)", Sexp: "Always-on shared experts (included in both E and k)",
+    EP: "Expert-parallel degree (chapter 12's Z)",
     meas: "0 = spec sheet numbers, 1 = measured/sustained (spec × the eff factors)",
     effC: "Sustained GEMM fraction of spec peak compute (see the hardware table's citations)",
     effIci: "Achieved collective fraction of spec in-pod bandwidth",
@@ -376,6 +453,16 @@
     N: { expr: "DP*TP", name: "total chips" },
     alpha: { expr: "C/Wici", name: "fast-interconnect (ICI / NVLink) arithmetic intensity — the ridge" },
     alphaDcn: { expr: "C/Wdcn", name: "cross-pod (DCN / InfiniBand) arithmetic intensity" },
+    Wdp: { expr: "gpu && DP>podSize ? min(Wici,Wdcn*podSize) : Wici*(gpu?1:MDP)", name: "topology-aware DP/FSDP collective bandwidth" },
+    Wtp: { expr: "gpu && TP>podSize ? min(Wici,Wdcn*podSize) : Wici*(gpu?1:MTP)", name: "topology-aware tensor-parallel collective bandwidth" },
+    alphaDP: { expr: "C/Wdp", name: "DP/FSDP arithmetic intensity on the fabric that actually carries it" },
+    alphaTP: { expr: "C/Wtp", name: "tensor-parallel arithmetic intensity on the fabric that actually carries it" },
+    mixF: { expr: "gpu ? (N<=podSize ? 4*D*E*F/(min(TP,podSize)*Wici) : max(4*D*E*F/(Wici*min(TP,podSize)),4*D*E*F/(Wdcn*max(podSize,TP)))) : 4*D*E*F/(TP*Wici*MDP)", name: "mixed FSDP weight-communication clock" },
+    mixTP: { expr: "4*B*D/(DP*Wtp)", name: "mixed tensor-parallel activation-communication clock" },
+    mixMath: { expr: "4*B*D*k*F/(DP*TP*C)", name: "mixed-scheme compute clock" },
+    mixComms: { expr: "max(mixF,mixTP)", name: "mixed communication clock" },
+    Er: { expr: "max(E-Sexp,0)", name: "routed experts (shared experts excluded)" },
+    kr: { expr: "max(k-Sexp,0)", name: "routed expert selections per token" },
     P: { expr: "2*D*E*F*L", name: "MLP-stack parameter count" },
   };
 
@@ -870,15 +957,17 @@
 
   // ---------- live table rows ----------
   // In a table whose rows carry .t-preset[data-set] loaders, cells annotated
-  // data-live="D|F|…" (a state key) or data-live-expr="k*F" grow a live twin;
-  // when the page state matches a row's preset, that row shows the live
-  // (scrubbable/computed) values instead of its printed ones.
+  // data-live="D|F|…" (a state key) or data-live-expr="k*F" grow a live twin.
+  // The matching preset row becomes the table's selected live row and stays
+  // live while the reader edits it; otherwise the first later exact match
+  // (for example, from a top-bar preset) becomes selected.
   const LIVE_VAR_ATTRS = {
-    D: { min: "512", max: "65536", snap: "pow2", fmt: "int" },
-    F: { min: "512", max: "262144", scale: "log", snap: "125", fmt: "int" },
+    D: { min: "512", max: "65536", snap: "int", fmt: "int" },
+    F: { min: "512", max: "262144", scale: "log", snap: "int", fmt: "int" },
     L: { min: "1", max: "200", scale: "lin", snap: "int", fmt: "int" },
-    E: { min: "1", max: "2048", scale: "log", snap: "pow2", fmt: "int" },
+    E: { min: "1", max: "2048", scale: "log", snap: "int", fmt: "int" },
     k: { min: "1", max: "64", scale: "lin", snap: "int", fmt: "int" },
+    Sexp: { min: "0", max: "64", scale: "lin", snap: "int", fmt: "int" },
     effC: { min: "0.2", max: "1", scale: "lin", fmt: "sig3" },
     effIci: { min: "0.2", max: "1", scale: "lin", fmt: "sig3" },
     effDcn: { min: "0.2", max: "1", scale: "lin", fmt: "sig3" },
@@ -910,17 +999,28 @@
       } else return;
       td.appendChild(live);
     });
-    // row activation: state matches the row's preset exactly (on its keys)
-    root.querySelectorAll("tr").forEach((tr) => {
-      if (!tr.querySelector("td[data-live], td[data-live-expr]")) return;
-      const btn = tr.querySelector(".t-preset[data-set]");
-      if (!btn) return;
-      let patch;
-      try { patch = JSON.parse(btn.dataset.set); } catch (e) { return; }
+    // Keep one selected live row per table. Exact state matches select a row;
+    // once selected, a row remains live while its values are customized.
+    root.querySelectorAll("table").forEach((tbl) => {
+      const rows = [];
+      tbl.querySelectorAll("tr").forEach((tr) => {
+        if (!tr.querySelector("td[data-live], td[data-live-expr]")) return;
+        const btn = tr.querySelector(".t-preset[data-set]");
+        if (!btn) return;
+        let patch;
+        try { patch = JSON.parse(btn.dataset.set); } catch (e) { return; }
+        rows.push({ tr, btn, patch });
+      });
+      if (!rows.length) return;
+      let selected = null;
       const check = () => {
-        const active = Object.keys(patch).every((k) => state[k] === Number(patch[k]));
-        tr.classList.toggle("live-row", active);
+        const exact = rows.find((r) => Object.keys(r.patch).every((k) => state[k] === Number(r.patch[k])));
+        if (exact) selected = exact;
+        for (const r of rows) r.tr.classList.toggle("live-row", r === selected);
       };
+      for (const r of rows) {
+        r.btn.addEventListener("click", () => { selected = r; check(); });
+      }
       subscribe(check);
       check();
     });
@@ -1182,12 +1282,16 @@
 
   // ---------- sortable tables ----------
   // any <table class="tbl sortable">: click a header to sort by that column;
-  // numeric-aware (strips ≈ and commas, understands k/M/B/T suffixes)
+  // numeric-aware (strips ≈ and commas, understands engineering suffixes)
   function sortKeyOf(text) {
     const s = text.trim().replace(/[≈,\s]/g, "");
-    const m = s.match(/^[-+]?(\d*\.?\d+(?:[eE][-+]?\d+)?)([kKMmBbTt]?)/);
+    const m = s.match(/^[-+]?(\d*\.?\d+(?:[eE][-+]?\d+)?)([kKmMgGbBtTpPeE]?)/);
     if (m) {
-      const suf = { k: 1e3, K: 1e3, m: 1e6, M: 1e6, b: 1e9, B: 1e9, t: 1e12, T: 1e12 }[m[2]] || 1;
+      const suf = {
+        k: 1e3, K: 1e3, m: 1e6, M: 1e6, g: 1e9, G: 1e9,
+        b: 1e9, B: 1e9, t: 1e12, T: 1e12, p: 1e15, P: 1e15,
+        e: 1e18, E: 1e18,
+      }[m[2]] || 1;
       return Number(m[1]) * suf;
     }
     return null;
@@ -1320,8 +1424,10 @@
   // ---------- exports ----------
   window.Core = {
     get: () => state,
+    getEffective: () => effState(),
     defaults: () => Object.assign({}, DEFAULTS),
     set, subscribe, evalExpr, evalNow, fmt, resetAll,
+    collectiveBandwidth, mixedTimes,
     dimHover, onDimHover,
     SERIES: { s1: "#2a78d6", s2: "#eb6834", s3: "#1baf7a", s4: "#eda100", s5: "#e87ba4", s6: "#008300", s7: "#4a3aa7", s8: "#e34948" },
     CHROME: { ink: "#0b0b0b", ink2: "#52514e", muted: "#898781", grid: "#e1e0d9", axis: "#c3c2b7", surface: "#fcfcfb", good: "#0ca30c", bad: "#d03b3b" },

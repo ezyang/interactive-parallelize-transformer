@@ -269,11 +269,9 @@
      roofline-chart — the flagship. x = global batch B (tokens,
      1e4..1e9 log), y = time per layer (log). Series per SPEC
      physics (F = per-expert width: math moves k·F, weights E·F),
-     all N = X·Y chips in use:
-       T_math(B)         = 4·B·D·k·F/(N·C)          ink, dashed
-       FSDP comms        = 4·D·E·F/(Wici·MX)        s1 blue, flat
-       TP comms          = 4·B·D/(Wici·MY)          s2 orange
-       mixed best comms  = (4·D/Wici)·√(B·E·F/(MX·MY·N))  s3 aqua
+     all N = X·Y chips in use. Pure schemes select their actual
+     collective fabric; the mixed curve uses the TPU closed form or
+     a topology-aware GPU search, constrained to 1 ≤ X ≤ N.
      Toggle: absolute times ↔ ratio T_math/T_comms (hairline at 1,
      red wash below = comms-bound). Draggable marker at current B.
      ============================================================ */
@@ -282,7 +280,7 @@
     let view = "times";
     const SCRUB = "#006300";
 
-    const title = div("w-title", "One chart, every scheme — time per layer as the batch grows");
+    const title = div("w-title", "Core DP/FSDP/TP rooflines — time per layer as the batch grows");
     const tabs = div("tabs");
     const btnT = document.createElement("button");
     btnT.textContent = "absolute times";
@@ -301,15 +299,36 @@
 
     const BX0 = 1e4, BX1 = 1e9;
 
+    function bestMixed(S, B, N) {
+      if (!S.gpu) {
+        const raw = Math.sqrt((B * S.MDP * N) / (S.E * S.F * S.MTP));
+        const x = Math.max(1, Math.min(N, raw));
+        const t = Core.mixedTimes(S, x, N / x, B);
+        return { x, time: t.tcomms };
+      }
+      // The GPU curve is piecewise because the inner TP axis must cross a
+      // whole NVLink domain before it reduces the scale-out FSDP bottleneck.
+      let best = { x: 1, time: Infinity };
+      const steps = 192;
+      for (let i = 0; i <= steps; i++) {
+        const x = Math.pow(N, i / steps);
+        const t = Core.mixedTimes(S, x, N / x, B).tcomms;
+        if (t < best.time) best = { x, time: t };
+      }
+      return best;
+    }
+
     // series definitions, closed over live state at render time
     function seriesFns(S) {
       const N = Math.max(1, S.DP * S.TP);
       const tmath = (B) => (4 * B * S.D * S.k * S.F) / (N * S.C);
+      const Wdp = Core.collectiveBandwidth(S, N, S.MDP);
+      const Wtp = Core.collectiveBandwidth(S, N, S.MTP);
       const defs = [
         { label: "T_math (compute, all " + Core.fmt(N, "si") + " chips)", color: CHR.ink, dashed: true, fn: tmath, isMath: true },
-        { label: "data parallel / FSDP comms (over " + axLabel("MX") + " = " + S.MDP + (S.MDP > 1 ? " axes)" : " axis)"), color: SER.s1, fn: () => (4 * S.D * S.E * S.F) / (S.Wici * S.MDP) },
-        { label: "tensor parallel comms (over " + axLabel("MY") + " = " + S.MTP + (S.MTP > 1 ? " axes)" : " axis)"), color: SER.s2, fn: (B) => (4 * B * S.D) / (S.Wici * S.MTP) },
-        { label: "mixed FSDP+TP (best " + axLabel("X") + "," + axLabel("Y") + ") comms", color: SER.s3, fn: (B) => (4 * S.D / S.Wici) * Math.sqrt((B * S.E * S.F) / (S.MDP * S.MTP * N)) },
+        { label: "data parallel / FSDP comms (W=" + Core.fmt(Wdp, "bw") + ")", color: SER.s1, fn: () => (4 * S.D * S.E * S.F) / Wdp },
+        { label: "tensor parallel comms (W=" + Core.fmt(Wtp, "bw") + ")", color: SER.s2, fn: (B) => (4 * B * S.D) / Wtp },
+        { label: "mixed FSDP+TP (best constrained continuous " + axLabel("X") + "," + axLabel("Y") + ") comms", color: SER.s3, fn: (B) => bestMixed(S, B, N).time },
       ];
       return { defs, tmath };
     }
@@ -348,7 +367,7 @@
     });
 
     attachCrosshair(chart, function (bx) {
-      const S = Core.get();
+      const S = Core.getEffective();
       const rows = plotted(S).map((d) => {
         const v = d.fn(bx);
         return { color: d.color, dashed: d.dashed, label: d.label, value: view === "times" ? Core.fmt(v, "time") : Core.fmt(v, "x") };
@@ -356,8 +375,8 @@
       return { xLabel: "B = " + Core.fmt(bx, "si") + " tokens", rows };
     }, marker.isDragging);
 
-    btnT.addEventListener("click", function () { view = "times"; render(Core.get()); });
-    btnR.addEventListener("click", function () { view = "ratio"; render(Core.get()); });
+    btnT.addEventListener("click", function () { view = "times"; render(Core.getEffective()); });
+    btnR.addEventListener("click", function () { view = "ratio"; render(Core.getEffective()); });
 
     function render(S) {
       btnT.setAttribute("aria-pressed", view === "times");
@@ -415,11 +434,14 @@
       // readout: the verdict at the current B
       const { tmath } = seriesFns(S);
       const N = Math.max(1, S.DP * S.TP);
-      const best = (4 * S.D / S.Wici) * Math.sqrt((S.B * S.E * S.F) / (S.MDP * S.MTP * N));
+      const optimum = bestMixed(S, S.B, N);
+      const best = optimum.time;
       const tm = tmath(S.B);
       const ok = fin(tm) && fin(best) && tm >= best;
       readout.textContent = "At B = " + Core.fmt(S.B, "si") + ": T_math " + Core.fmt(tm, "time") +
-        " vs best-mixed comms " + Core.fmt(best, "time") +
+        " vs best constrained mixed comms " + Core.fmt(best, "time") +
+        " at " + axLabel("X") + "≈" + Core.fmt(optimum.x, "si") +
+        ", " + axLabel("Y") + "≈" + Core.fmt(N / optimum.x, "si") +
         (ok ? " — compute-bound with " + Core.fmt(tm / best, "x") + " headroom." : " — comms-bound by " + Core.fmt(best / tm, "x") + ".");
 
       // legend
@@ -434,8 +456,8 @@
      xy-explorer — split a fixed N = X·Y between FSDP (X) and
      TP (Y). x-axis: X in powers of 2 from 1..N (log2). Curves
      (F = per-expert width: math moves k·F, weights E·F):
-       T_fsdp(X) = 4·D·E·F·X/(N·Wici·MX) s1 blue   (rises with X)
-       T_tp(X)   = 4·B·D/(X·Wici·MY)     s2 orange (falls with X)
+       T_fsdp(X) source closed form on TPU; hierarchical on GPU
+       T_tp(X) uses the fabric carrying Y = N/X
        max(both)                          s3 aqua, 3px (what you pay)
        T_math    = 4·B·D·k·F/(N·C)        ink dashed horizontal
      Green wash where max < T_math (compute-bound). Draggable
@@ -458,12 +480,29 @@
 
     function fns(S) {
       const N = Math.max(1, S.DP * S.TP);
+      const at = (x) => Core.mixedTimes(S, x, N / x);
       return {
         N,
-        tfsdp: (x) => (4 * S.D * S.E * S.F * x) / (N * S.Wici * S.MDP),
-        ttp: (x) => (4 * S.B * S.D) / (x * S.Wici * S.MTP),
-        tmath: (4 * S.B * S.D * S.k * S.F) / (N * S.C),
+        tfsdp: (x) => at(x).tfsdp,
+        ttp: (x) => at(x).ttp,
+        tmath: at(Math.max(1, S.DP)).tmath,
       };
+    }
+
+    function optimum(S, f) {
+      if (!S.gpu) {
+        const raw = Math.sqrt((S.B * S.MDP * f.N) / (S.E * S.F * S.MTP));
+        const x = Math.max(1, Math.min(f.N, raw));
+        return { x, value: Math.max(f.tfsdp(x), f.ttp(x)) };
+      }
+      let best = { x: 1, value: Infinity };
+      const steps = 240;
+      for (let i = 0; i <= steps; i++) {
+        const x = Math.pow(f.N, i / steps);
+        const v = Math.max(f.tfsdp(x), f.ttp(x));
+        if (v < best.value) best = { x, value: v };
+      }
+      return best;
     }
 
     // drag: capture N at pointerdown so setting X mid-drag can't change the budget
@@ -474,12 +513,12 @@
       let x = Math.pow(2, Math.round(Math.log2(Math.max(1, xv))));
       x = Math.min(N, Math.max(1, x));
       x = Math.max(x, N / 8192); // keep Y within its clamp so X·Y stays = N
-      if (fin(x) && fin(N / x)) Core.set({ X: x, Y: N / x });
+      if (fin(x) && fin(N / x)) Core.set({ DP: x, TP: N / x });
       if (phase === "up") nFixed = null;
     });
 
     attachCrosshair(chart, function (xv) {
-      const S = Core.get();
+      const S = Core.getEffective();
       const f = fns(S);
       const x = Math.min(f.N, Math.max(1, Math.pow(2, Math.round(Math.log2(Math.max(1, xv))))));
       const a = f.tfsdp(x), b = f.ttp(x);
@@ -534,21 +573,27 @@
         yLabel: "time per layer",
       });
 
-      // green wash: compute-bound where max(comms) < T_math.
-      // T_tp < T_math ⇔ B/(X·MY) < B·k·F/(N·α) ⇔ X > N·α/(k·F·MY)
-      // T_fsdp < T_math ⇔ E·F·X/(N·MX) < B·k·F/(N·α) ⇔ X < B·MX·k/(α·E)
+      // Green wash: sample the actual topology-aware clocks. This remains
+      // correct across GPU fabric boundaries, where the closed-form TPU
+      // interval no longer applies.
       chart.layers.wash.innerHTML = "";
-      const alpha = S.C / S.Wici;
-      const xLo = Math.max(1, (N * alpha) / (S.k * S.F * S.MTP));
-      const xHi = Math.min(X1, (S.B * S.MDP * S.k) / (alpha * S.E));
-      if (fin(xLo) && fin(xHi) && xHi > xLo) {
-        const px0 = chart.px(xLo), px1 = chart.px(xHi);
+      let washMin = Infinity, washMax = -Infinity;
+      const washSteps = 160;
+      for (let i = 0; i < washSteps; i++) {
+        const xa = Math.pow(X1, i / washSteps);
+        const xb = Math.pow(X1, (i + 1) / washSteps);
+        const xm = Math.sqrt(xa * xb);
+        if (Math.max(f.tfsdp(xm), f.ttp(xm)) >= f.tmath) continue;
+        washMin = Math.min(washMin, xa); washMax = Math.max(washMax, xb);
         chart.layers.wash.appendChild(h("rect", {
-          x: px0, y: chart.m.t, width: Math.max(0, px1 - px0),
+          x: chart.px(xa), y: chart.m.t,
+          width: Math.max(0, chart.px(xb) - chart.px(xa) + 0.5),
           height: chart.H - chart.m.t - chart.m.b, fill: "rgba(12,163,12,0.07)",
         }));
+      }
+      if (fin(washMin) && fin(washMax)) {
         chart.layers.wash.appendChild(h("text", {
-          x: (px0 + px1) / 2, y: chart.m.t + 14, "text-anchor": "middle",
+          x: (chart.px(washMin) + chart.px(washMax)) / 2, y: chart.m.t + 14, "text-anchor": "middle",
           "font-size": 10.5, fill: "#075607", "font-weight": 600,
         }, "compute-bound"));
       }
@@ -577,9 +622,10 @@
           "font-size": 10.5, fill: CHR.ink2, "font-weight": 600,
         }, "T_math"));
       }
-      const xOpt = Math.sqrt((S.B * S.MDP * N) / (S.E * S.F * S.MTP));
-      if (fin(xOpt) && xOpt > 1 && xOpt < X1) {
-        const vOpt = Math.max(f.tfsdp(xOpt), f.ttp(xOpt));
+      const opt = optimum(S, f);
+      const xOpt = opt.x;
+      if (fin(xOpt) && xOpt >= 1 && xOpt <= X1) {
+        const vOpt = opt.value;
         const yTop = fin(vOpt) && vOpt > 0 ? Math.max(chart.m.t, Math.min(chart.H - chart.m.b, chart.py(vOpt))) : chart.m.t;
         chart.layers.anno.appendChild(h("line", {
           x1: chart.px(xOpt), y1: yTop, x2: chart.px(xOpt), y2: chart.H - chart.m.b,
