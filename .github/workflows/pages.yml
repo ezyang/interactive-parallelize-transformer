@@ -30,8 +30,10 @@ jobs:
         run: |
           ./build.sh
           mkdir _site
-          cp index.html LICENSE-scaling-book.txt SOURCES.md _site/
+          cp index.html roofline.html LICENSE-scaling-book.txt SOURCES.md ROOFLINE-SOURCES.md _site/
           cp -R css js _site/
+          mkdir -p _site/source
+          cp source/roofline.md _site/source/
           touch _site/.nojekyll
 
       - name: Upload Pages artifact

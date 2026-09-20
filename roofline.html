@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>All About Rooflines — an explorable explanation</title>
+  <meta name="description" content="When we run algorithms on hardware, we&#x27;re bounded by three things: how fast our computer can do math (OPs/second), the bandwidth available for moving data around (bytes/second), and the total memory available to store data (bytes). These &quot;roofline&quot; constraints let us upper and lower bound the time of a given computation.">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/roofline-page.css?v=10">
+  <script defer src="js/roofline-model.js?v=12"></script>
+  <script defer src="js/roofline-page.js?v=22"></script>
+</head>
+<body class="roofline-page">
+<noscript><p class="noscript">JavaScript powers the live calculations on this page. You can still read the derivations, or visit the <a href="https://jax-ml.github.io/scaling-book/roofline/">original chapter</a>.</p></noscript>
+<div class="machine" aria-label="Chapter configuration">
+ <div class="machine-row">
+  <div class="group">
+    <span class="seg" role="group" aria-label="Accelerator family">
+      <button class="seg-opt" data-choice="family" data-choice-value="tpu" aria-pressed="true">TPU</button>
+      <button class="seg-opt" data-choice="family" data-choice-value="gpu" aria-pressed="false">NVIDIA GPU</button>
+    </span>
+  </div>
+  <select id="hardware" aria-label="Hardware generation"></select>
+  <div class="group">
+    <span class="seg" role="group" aria-label="Bandwidth type">
+      <button class="seg-opt" data-choice="boundary" data-choice-value="hbm" aria-pressed="true">HBM</button>
+      <button class="seg-opt" data-choice="boundary" data-choice-value="network" aria-pressed="false">Network</button>
+    </span>
+  </div>
+  <label class="machine-select">Precision <select data-select="precision" aria-label="Matmul precision"><option value="bf16">BF16</option><option value="fp8" data-only="gpu" hidden>FP8 → BF16 output</option><option value="int8" data-only="tpu">INT8 (assume 2× compute)</option><option value="weights8" data-only="tpu">INT8 weights, BF16 compute</option></select></label>
+  <label class="machine-select" data-only="network" hidden>Path <select data-select="fabric" aria-label="Network path"><option value="link" data-value="fastInterconnectName">ICI</option><option value="scaleout">Scale-out network</option></select></label>
+  <label class="machine-select" data-only="network" hidden>Wire <select data-select="wire" aria-label="Communication data type, bytes per partial sum"><option value="2">BF16 · 2 bytes</option><option value="4">FP32 · 4 bytes</option><option value="1" data-only="tpu">INT8 · 1 byte (idealized)</option></select></label>
+ </div>
+ <div class="machine-row" role="group" aria-label="Shared calculation parameters">
+  <span class="setting">Batch B = <span class="t-var" data-var="B"></span> tokens</span>
+  <span class="setting" title="Input hidden size">Input hidden D = <span class="t-var" data-var="D"></span></span>
+  <span class="setting" title="Output hidden size">Output hidden F = <span class="t-var" data-var="F"></span></span>
+  <span class="setting">Compute rate × <span class="t-var" data-var="computeScale" data-format="factor"></span></span>
+  <span class="setting">Bandwidth × <span class="t-var" data-var="bandwidthScale" data-format="factor"></span></span>
+  <span class="setting" title="Fraction of the shorter compute or transfer duration that overlaps the longer one">Overlap = <span class="t-var" data-var="overlap" data-format="percent"></span></span>
+  <span class="setting" data-only="hbm">Dot product N = <span class="t-var" data-var="vectorN"></span></span>
+  <button class="reset" id="reset">Reset numbers</button>
+  <button class="reset" id="share">Copy link</button>
+ </div>
+
+</div>
+<main class="paper">
+<header>
+  <nav class="chapter-nav" aria-label="Chapters"><a href="index.html">↔ Parallelizing a Transformer</a><a href="https://jax-ml.github.io/scaling-book/roofline/">Original chapter ↗</a></nav>
+  <p class="eyebrow">An interactive edition of the Scaling Book</p>
+  <h1>All About Rooflines</h1>
+  <p class="part-links">Part 1 of <a href="https://jax-ml.github.io/scaling-book/">How To Scale Your Model</a> · <a href="https://jax-ml.github.io/scaling-book/">Introduction</a> · <a data-only="tpu" href="https://jax-ml.github.io/scaling-book/tpus/">Next: TPUs</a><a data-only="gpu" hidden href="https://jax-ml.github.io/scaling-book/gpus/">Next: GPUs</a></p>
+  <p class="dek">When we run algorithms on hardware, we&#x27;re bounded by three things: how fast our computer can do math (OPs/second), the bandwidth available for moving data around (bytes/second), and the total memory available to store data (bytes). These &quot;roofline&quot; constraints let us upper and lower bound the time of a given computation.</p>
+  <div class="article-meta">
+    <div><p class="meta-label">Original authors</p><ul class="authors"><li>Jacob Austin</li><li>Sholto Douglas</li><li>Roy Frostig</li><li>Anselm Levskaya</li><li>Charlie Chen</li><li>Sharad Vikram</li><li>Federico Lebron</li><li>Peter Choy</li><li>Vinay Ramasesh</li><li>Albert Webson</li><li>Reiner Pope</li></ul></div>
+    <div><p class="meta-label">Original publication</p><p>Google DeepMind<br><time datetime="2025-02-04">February 4, 2025</time></p><p><a href="ROOFLINE-SOURCES.md">About this adaptation</a></p></div>
+  </div>
+  <p class="source-note provenance"><strong>Whose words are you reading?</strong> The prose comes from <a href="source/roofline.md">the original essay</a>, with local changes for the selected hardware and HBM or network bandwidth. <strong>✦ adaptation</strong> marks new paragraphs and sections written with OpenAI Codex. Live numbers and interactive figures replace fixed examples. <a href="ROOFLINE-SOURCES.md">Sources and editorial changes</a>.</p>
+  <nav class="toc" aria-label="Table of contents">
+    <h2>Contents</h2>
+    <a href="#time">Where Does the Time Go?</a>
+    <a class="sub" href="#plot">Visualizing rooflines</a>
+    <a class="sub" href="#matmul">Matrix multiplication</a>
+    <a class="sub" href="#hardware-specs">The hardware numbers</a>
+    <a href="#problems" data-only="problems">A Few Problems to Work</a>
+  </nav>
+</header>
+
+<section id="time">
+  <h2>Where Does the Time Go?</h2>
+  <p>Let's start with an extremely simple question: <em>why does an algorithm take 50ms instead of 50s or 5ms</em>? What is actually happening within the model that takes substantial time and how long should we expect it to take?</p>
+  <p><strong>Computation:</strong> A deep learning model is effectively a bunch of matrix multiplications, each composed of floating-point multiplication and addition 'operations' (FLOPs). Our accelerator speed determines how long these take to compute. Let <strong>C</strong> be the compute rate per chip:</p>
+  <div class="eq">T<sub>math</sub> = <span class="frac"><span>Computation <span data-value="opUnit"></span>s</span><span>Accelerator <span data-value="opUnit"></span>s/s C</span></span></div>
+  <p>For instance, <span data-value="hardwareName"></span> can perform about <span class="t-out" data-value="specCompute" data-format="rate"></span> in bfloat16, a 16-bit floating point format often used in ML. That means doing 10<sup>12</sup> operations will take roughly 10<sup>12</sup> / C = <span class="t-out" data-value="trillionTime" data-format="time"></span> at the current compute rate.<span class="footnote" id="note-ref-peak"><button class="footnote-ref" data-note="peak" aria-controls="note-peak" aria-expanded="false" aria-label="Footnote: peak versus achieved throughput">2</button><span class="footnote-body" id="note-peak" role="note" hidden><strong>✦ adaptation — Peak versus achieved throughput.</strong> This is a lower bound on compute time. Small operations, launch overhead, and kernels that use the hardware inefficiently can take longer. The compute multiplier lets you model a lower usable rate.</span></span></p>
+  <p class="source-note">✦ adaptation — Published rates are theoretical peaks; real kernels generally achieve less. The compute and bandwidth multipliers model achieved rates as a fraction of peak (0.8 means 80%), or hypothetical faster hardware above 1. Compute also depends on the selected precision. All compute rates here are dense, without structured sparsity.</p>
+  <p data-only="fp8" hidden>✦ adaptation — The native dense FP8 Tensor Core rate is <span class="t-out" data-value="specFP8" data-format="rate"></span> per GPU. <a href="ROOFLINE-SOURCES.md#fp8">FP8 specifications</a>.</p>
+  <div class="figure-controls"><span>Compute × <span class="t-var" data-var="computeScale" data-format="factor"></span></span><span>C = <span class="t-out" data-value="C" data-format="rate"></span> per chip · <span data-value="precisionName"></span></span></div>
+  <p data-only="hbm"><strong>Communication within a chip:</strong> <em>Within an accelerator</em>, tensors need to be transferred between accelerator memory (HBM) and the compute cores. You'll see the bandwidth of this link referred to as "HBM bandwidth." On <span data-value="hardwareName"></span>, this is <span class="t-out" data-value="bandwidth" data-format="bandwidth"></span>. Let <strong>W</strong> be this bandwidth in bytes/s and <strong>Q</strong> the bytes read and written.</p>
+  <p data-only="network" hidden><strong>Communication between chips:</strong> When we distribute a model <em>across</em> multiple accelerators, tensors frequently need to be transferred between them. There are often a few options for this on our hardware (<span data-only="tpu">ICI, DCN, and PCIe</span><span data-only="gpu" hidden>NVLink, the scale-out network, and PCIe</span>), each with different bandwidths. Let <strong>W</strong> be the outgoing bandwidth per chip and <strong>Q</strong> the bytes sent by each chip.</p>
+  <div class="figure-controls"><span>Bandwidth × <span class="t-var" data-var="bandwidthScale" data-format="factor"></span></span><span>W = <span class="t-out" data-value="bandwidth" data-format="bandwidth"></span></span></div>
+  <p>We measure this in bytes/s and estimate the total communication time with:</p>
+  <div class="eq">T<sub>comms</sub> = <span class="frac"><span>Communication bytes Q</span><span><span data-value="boundaryName"></span> bandwidth W</span></span></div>
+  <p>Typically (but not always), computation within a single chip can be overlapped with communication <span data-only="hbm">within a chip</span><span data-only="network" hidden>between chips</span>. This means <strong>we can lower-bound training and inference time by using the maximum of computation and communication time</strong>. We can also <strong>upper-bound with their sum</strong>. In practice, we optimize against the maximum as the algebra is simpler and we can usually come close to this bound by overlapping our communication and computation.</p>
+  <div class="adaptation" id="workload">
+    <p class="adaptation-label">✦ adaptation — A matmul as a linear map</p>
+    <p>A matrix multiplication maps a token's vector from one latent space to another. A batch applies the same linear map to many token vectors.</p>
+    <dl class="notation">
+      <div><dt>B</dt><dd><strong>Batch size:</strong> <span class="t-var" data-var="B"></span> token vectors, not sequences.</dd></div>
+      <div><dt>D</dt><dd><strong>Input width:</strong> <span class="t-var" data-var="D"></span> — the input hidden size.<span data-only="network" hidden> D is split evenly between two chips.</span></dd></div>
+      <div><dt>F</dt><dd><strong>Output width:</strong> <span class="t-var" data-var="F"></span> — the output hidden size.</dd></div>
+    </dl>
+    <p>Call the input matrix X, the weight matrix Y, and the output matrix Z. Each row of X is an input vector; each row of Z is its transformed output. The multiplication contracts over D:</p>
+    <div class="eq">X[B, D] ·<sub>D</sub> Y[D, F] → Z[B, F]</div>
+    <details class="answer"><summary>Hidden sizes in a Transformer</summary><p>In a Transformer's feed-forward network, the up-projection maps the model hidden size D to the intermediate size F. The down-projection reverses these roles. A square weight matrix has D = F.</p></details>
+    <p>BF16 uses two bytes per element; <span data-only="tpu">INT8 uses one. Integer arithmetic is counted in OPs, floating-point arithmetic in FLOPs.</span><span data-only="gpu" hidden>FP8 uses one. Floating-point arithmetic is counted in FLOPs.</span> One multiply-add counts as two operations.<span class="footnote" id="note-ref-precision"><button class="footnote-ref" data-note="precision" aria-controls="note-precision" aria-expanded="false" aria-label="Footnote: quantization assumptions">1</button><span class="footnote-body" id="note-precision" role="note" hidden><strong>✦ adaptation — Quantization assumptions.</strong> These byte counts omit conversion work, quantization scales, and padding. Lower precision can also affect accuracy. <span data-only="tpu">We assume a 2× INT8 rate for the TPU exercise.</span></span></span></p>
+    <p data-only="hbm">Let <strong>w</strong> be bytes per weight, <strong>a</strong> bytes per input activation, and <strong>o</strong> bytes per output. For <span data-value="precisionName"></span>, w = <span class="t-out" data-value="qW" data-format="number"></span>, a = <span class="t-out" data-value="qA" data-format="number"></span>, o = <span class="t-out" data-value="qO" data-format="number"></span>. The matmul performs approximately 2BDF operations and transfers Q = aBD + wDF + oBF bytes, assuming each input is read once and each output written once.</p>
+    <p data-only="network" hidden>The matrices are split along D. Each chip does BDF operations and produces a [B, F] matrix of partial sums; the chips exchange and add their results. Let <strong>s</strong> be bytes per transmitted element: s = <span class="t-out" data-value="wire" data-format="number"></span> and Q = sBF bytes per chip. Sending and receiving happen simultaneously. Local HBM bandwidth is assumed not to limit computation.</p>
+  </div>
+  <p>If we assume we can perfectly overlap communication and computation, when T<sub>math</sub> &gt; T<sub>comms</sub>, we see full utilization from our hardware. We call this being "compute-bound". When T<sub>comms</sub> &gt; T<sub>math</sub>, we tend to be "communication-bound" and at least some fraction of our accelerator <span data-value="opUnit"></span>s/s is wasted waiting for data to be passed around.</p>
+  <figure class="breakout">
+    <div class="figure-panel widget">
+      <p class="figure-heading w-title">Computation and communication times <span class="bound-label verdict" data-value="bound"></span></p>
+      <p class="figure-context"><span data-value="precisionName"></span><span data-only="network" hidden> · <span data-value="wire"></span> bytes per transmitted element</span></p>
+      <div class="figure-controls dimension-controls">
+        <span>Batch B = <span class="t-var" data-var="B"></span> tokens</span>
+        <span>Input hidden size D = <span class="t-var" data-var="D"></span></span>
+        <span>Output hidden size F = <span class="t-var" data-var="F"></span></span>
+        <span data-value="countingScope"></span>
+      </div>
+      <p class="parameter-count">Weight parameters: D × F = <span class="t-out" data-value="weightElements" data-format="compact"></span><span data-only="network" hidden> total · <span class="t-out" data-value="localWeightElements" data-format="compact"></span> per chip</span>.</p>
+      <div class="figure-controls">
+        <label>Time window <select data-select="timeWindow" aria-label="Timeline time window"><option value="auto">Auto (fit)</option><option value="0.00001">0–10 µs</option><option value="0.0001">0–100 µs</option><option value="0.001">0–1 ms</option><option value="0.01">0–10 ms</option><option value="0.1">0–100 ms</option><option value="1">0–1 s</option></select></label>
+        <div class="seg" role="group" aria-label="Timeline scale"><button data-choice="timeScale" data-choice-value="linear" aria-pressed="true">Linear</button><button data-choice="timeScale" data-choice-value="log" aria-pressed="false">Log</button></div>
+      </div>
+      <p class="source-note" data-value="timelineScaleNote"></p>
+      <div class="legend" data-only="hbm" aria-label="HBM traffic components"><span><i class="box-key" aria-hidden="true"></i>Weight reads: <span class="t-out" data-value="parameterTransfer" data-format="time"></span></span><span><i class="box-key orange" aria-hidden="true"></i>Activation reads + writes: <span class="t-out" data-value="activationTransfer" data-format="time"></span></span></div>
+      <svg id="timeline" class="roof-chart" viewBox="0 0 760 196" role="img" aria-label="Computation and communication times, and their overlap"></svg>
+      <p class="source-note" data-only="hbm">Weight traffic is wDF; activation traffic is B(aD + oF). Increasing B reuses the same parameters, while reading and writing more activations.</p>
+      <p class="source-note timeline-overflow" data-value="overflowNote" aria-live="polite"></p>
+      <div class="figure-controls"><span>Overlap (% of shorter duration): <span class="t-var" data-var="overlap" data-format="percent"></span></span><button class="t-preset" data-patch='{"overlap":1}'>Perfect overlap</button><button class="t-preset" data-patch='{"overlap":0}'>Serial</button></div>
+      <div class="readout-grid">
+        <div><small>Compute time</small><strong class="t-out" data-value="math" data-format="time"></strong><small class="cost-formula" data-only="hbm">2BDF / C</small><small class="cost-formula" data-only="network" hidden>BDF / C</small></div>
+        <div><small><span data-value="boundaryName"></span> communication time</small><strong class="t-out" data-value="transfer" data-format="time"></strong><small class="cost-formula" data-only="hbm">(aBD + wDF + oBF) / W</small><small class="cost-formula" data-only="network" hidden>sBF / W</small></div>
+        <div><small>Elapsed time</small><strong class="t-out" data-value="runtime" data-format="time"></strong></div>
+      </div>
+      <p class="source-note" data-only="hbm">a = <span class="t-out" data-value="qA"></span> bytes per input; w = <span class="t-out" data-value="qW"></span> bytes per weight; o = <span class="t-out" data-value="qO"></span> bytes per output. C is operations per second; W is HBM bytes per second.</p>
+      <details class="cost-details answer"><summary>✦ adaptation — Matmul work and communication</summary>
+        <div data-only="hbm">
+          <p>Each of the B × F outputs needs D multiplications and roughly D additions: approximately 2BDF = <span class="t-out" data-value="ops" data-format="compact"></span> <span data-value="opUnit"></span>s. Divide by C = <span class="t-out" data-value="C" data-format="rate"></span> to get <span class="t-out" data-value="math" data-format="time"></span>.</p>
+          <p>Read input: aBD = <span class="t-out" data-value="inputBytes" data-format="bytes"></span>.<br>Read weights: wDF = <span class="t-out" data-value="weightBytes" data-format="bytes"></span>.<br>Write output: oBF = <span class="t-out" data-value="writes" data-format="bytes"></span>.</p>
+          <p>Total Q = <span class="t-out" data-value="bytes" data-format="bytes"></span>. Divide by W = <span class="t-out" data-value="bandwidth" data-format="bandwidth"></span> to get <span class="t-out" data-value="transfer" data-format="time"></span>. This assumes each input and weight is read once.</p>
+        </div>
+        <div data-only="network" hidden>
+          <p>Each chip does half the matmul: BDF = <span class="t-out" data-value="ops" data-format="compact"></span> <span data-value="opUnit"></span>s. Divide by C = <span class="t-out" data-value="C" data-format="rate"></span> to get <span class="t-out" data-value="math" data-format="time"></span>.</p>
+          <p>Each chip sends a [B, F] matrix of partial sums with s = <span class="t-out" data-value="wire"></span> bytes per element: Q = sBF = <span class="t-out" data-value="bytes" data-format="bytes"></span>. Divide by outgoing W = <span class="t-out" data-value="bandwidth" data-format="bandwidth"></span> to get <span class="t-out" data-value="transfer" data-format="time"></span>.</p>
+        </div>
+      </details>
+    </div>
+    <figcaption><strong>Figure:</strong> computation and communication time.<span data-only="hbm"> HBM traffic consists of weight reads (blue) and activation reads and writes (orange).</span> Both tracks start at zero with perfect overlap; otherwise this illustrative schedule delays the longer task.</figcaption>
+  </figure>
+  <div class="eq">T<sub>lower</sub> = max(T<sub>math</sub>, T<sub>comms</sub>) = <span class="t-out" data-value="lower" data-format="time"></span></div>
+  <div class="eq">T<sub>upper</sub> = T<sub>math</sub> + T<sub>comms</sub> = <span class="t-out" data-value="serial" data-format="time"></span></div>
+  <p>If we optimize with the maximum in mind then the lower and upper bounds differ by at most a factor of 2 since T<sub>math</sub> + T<sub>comms</sub> ≤ 2 × max(T<sub>math</sub>, T<sub>comms</sub>). We then increase accuracy beyond this by modeling 'overlap regions' and overheads, which can be informed by profiling your specific model and target system.</p>
+  <details class="answer"><summary>✦ adaptation — Why the maximum, and why a factor of two?</summary><p>If computation takes 5 ms and communication takes 3 ms, perfect overlap finishes in 5 ms; consecutive execution takes 8 ms. Each duration is at most their maximum, so their sum cannot exceed twice that maximum. These bounds use the selected rates; launch overhead, message latency, and data dependencies can make real execution slower.</p></details>
+  <p>One way to tell if an operation will be compute or communication-bound is to look at its <strong>"arithmetic intensity"</strong> or <strong>"operational intensity"</strong>.</p>
+  <p><strong>Definition:</strong> the arithmetic intensity of an algorithm is given by the ratio of the total <span data-value="opUnit"></span>s it performs to the number of bytes it needs to communicate — <span data-only="hbm">within a chip</span><span data-only="network" hidden>between chips</span>. We write this as <strong>Intensity(Computation)</strong>.</p>
+  <div class="eq">Intensity(Computation) = <span class="frac"><span>Computation <span data-value="opUnit"></span>s</span><span>Communication bytes</span></span> = <span class="t-out" data-value="intensity" data-format="number"></span> <span data-value="opUnit"></span>/byte</div>
+  <p>Arithmetic intensity measures the "<span data-value="opUnit"></span>s per byte" of a given operation. To a first order, when our arithmetic intensity is high, T<sub>math</sub> is large compared to T<sub>comms</sub> and we typically use most of the available <span data-value="opUnit"></span>s/s. When the opposite is true, we spend more time on comms and waste <span data-value="opUnit"></span>s. The point where this crossover happens is the "peak arithmetic intensity" of our hardware, the ratio of peak accelerator <span data-value="opUnit"></span>s/s to accelerator bandwidth. We write this as <strong>Intensity(Accelerator)</strong>.</p>
+  <div class="eq">T<sub>math</sub> &gt; T<sub>comms</sub> ⇔ Intensity(Computation) &gt; Intensity(Accelerator)</div>
+  <div class="eq">Intensity(Accelerator) = C / W = <span class="t-out" data-value="ridge" data-format="number"></span> <span data-value="opUnit"></span>/byte</div>
+  <p>The quantity Intensity(Accelerator) is the arithmetic intensity at which our accelerator achieves its peak <span data-value="opUnit"></span>s/s. For <span data-value="hardwareName"></span>, this is about <span class="t-out" data-value="ridge" data-format="number"></span> <span data-value="opUnit"></span>/byte, since it can perform <span class="t-out" data-value="C" data-format="rate"></span> and <span data-only="hbm">load <span class="t-out" data-value="bandwidth" data-format="bandwidth"></span> from HBM</span><span data-only="network" hidden>send <span class="t-out" data-value="bandwidth" data-format="bandwidth"></span> over the network</span>. That means if an algorithm has a lower arithmetic intensity, it will be bound by <span data-only="hbm">byte loading</span><span data-only="network" hidden>communication</span> and thus we won't make good use of our hardware.</p>
+  <div data-only="hbm">
+    <p class="example-label"><strong>Example (dot product):</strong></p>
+    <p>To compute the dot product of two vectors of length N = <span class="t-var" data-var="vectorN"></span> in bfloat16 precision, <span class="shape">x · y: bf16[N], bf16[N] → bf16[1]</span>, we need to load x and y from memory, each of which has 2N bytes, perform N multiplications and N − 1 additions, and write 2 bytes back into HBM.</p>
+    <div class="eq">Intensity(dot product) = (2N − 1) / (4N + 2) = <span class="t-out" data-value="dotIntensity" data-format="number"></span> → ½ FLOP/byte</div>
+    <p>As N → ∞, the dot product has an arithmetic intensity of ½ or, put another way, the dot product does 0.5 floating point operations per byte loaded. This means our arithmetic intensity is lower than that of our hardware and we will be communication-bound.</p>
+    <details class="answer"><summary>✦ adaptation — Which compute units perform a dot product?</summary><p>The relevant ceiling is the <span data-only="tpu">VPU's, rather than the MXU's</span><span data-only="gpu" hidden>scalar/vector units', rather than the Tensor Cores'</span>. The original TPU example makes the same distinction: TPU v5p's VPU has a critical intensity around 3 FLOP/byte, so the dot product is still communication-bound. The matmul plots use the matrix multiplication units' throughput.</p></details>
+  </div>
+</section>
+
+<section id="plot">
+  <h3>Visualizing rooflines</h3>
+  <p>We can visualize the tradeoff between <span data-only="hbm">memory</span><span data-only="network" hidden>communication</span> and compute using a <strong>roofline plot</strong>, which plots the peak achievable <span data-value="opUnit"></span>s/s (throughput) of an algorithm on our hardware (the y-axis) against the arithmetic intensity of that algorithm (the x-axis). Here's an example log-log plot:</p>
+
+  <div class="eq">Throughput ≤ min(C, W · Intensity(Computation))</div>
+  <figure class="breakout" id="roofline-figure">
+    <div class="figure-panel widget">
+      <p class="figure-heading w-title"><span data-value="hardwareName"></span> · the <span data-value="boundaryName"></span> roofline</p>
+      <p class="figure-context"><span data-value="precisionName"></span><span data-only="network" hidden> · <span data-value="wire"></span> bytes per transmitted element</span></p>
+      <div class="figure-controls dimension-controls"><span>Batch B = <span class="t-var" data-var="B"></span></span><span>Input hidden size D = <span class="t-var" data-var="D"></span></span><span>Output hidden size F = <span class="t-var" data-var="F"></span></span></div>
+      <p class="parameter-count">Weight parameters: D × F = <span class="t-out" data-value="weightElements" data-format="compact"></span><span data-only="network" hidden> total · <span class="t-out" data-value="localWeightElements" data-format="compact"></span> per chip</span>.</p>
+      <div class="figure-controls">
+        <span>Compute × <span class="t-var" data-var="computeScale" data-format="factor"></span></span>
+        <span>Bandwidth × <span class="t-var" data-var="bandwidthScale" data-format="factor"></span></span>
+        <span class="comparison-actions" data-only="network" hidden><button class="t-preset" id="pin-bw2" title="Keep BW₂ at the current bandwidth while changing BW₁">Pin BW₂ to current BW</button><button class="t-preset" id="restore-bw2">Restore 2× BW₁</button></span>
+      </div>
+      <div class="legend"><span><i class="line-key"></i>BW₁ · <span data-value="bandwidth" data-format="bandwidth"></span></span><span><i class="line-key orange"></i>BW₂ · <span data-value="comparisonBandwidth" data-format="bandwidth"></span> (<span data-value="comparisonMode"></span>)</span><span><i class="line-key peak"></i>Compute ceiling</span></div>
+      <svg id="roofline-plot" class="roof-chart" viewBox="0 0 760 350" role="img" aria-label="Roofline plot calculated from the selected batch size and matrix dimensions"></svg>
+      <div class="region-legend" aria-label="Roofline regions"><span><i class="region-key bandwidth"></i>Bandwidth-bound at BW₁ and BW₂</span><span><i class="region-key mixed"></i><span data-value="mixedRegime"></span></span><span><i class="region-key compute"></i>Compute-bound at BW₁ and BW₂</span></div>
+      <div id="roofline-inspect" class="chart-readout" aria-live="off"></div>
+      <div class="readout-grid">
+        <div><small>Arithmetic intensity</small><strong class="t-out" data-value="intensity" data-format="number"></strong> <small><span data-value="opUnit"></span>/byte</small></div>
+        <div><small>Ideal throughput / chip</small><strong class="t-out" data-value="throughput" data-format="rate"></strong></div>
+        <div><small>Fraction of compute ceiling</small><strong class="t-out" data-value="utilization" data-format="percent"></strong></div>
+      </div>
+    </div>
+    <figcaption><strong>Figure:</strong> the same matmul under two bandwidths. Red: both bandwidths limit throughput. Yellow: only the higher bandwidth reaches the compute ceiling. Green: more bandwidth gives no benefit. The filled dot is the current matmul at BW₁; the outlined dot shows its throughput at BW₂.</figcaption>
+  </figure>
+
+  <p>Above, as the intensity increases (moving left to right), we initially see a linear increase in the performance of our algorithm (in <span data-value="opUnit"></span>s/s) until we hit the critical arithmetic intensity of the hardware, <span class="t-out" data-value="ridge" data-format="number"></span> at the selected bandwidth. Any algorithm with a lower intensity will be bandwidth (BW) bound and limited by the peak <span data-only="hbm">memory</span><span data-only="network" hidden>network</span> bandwidth. Any algorithm to the right will fully utilize our <span data-value="opUnit"></span>s/s. We can generally improve the performance of an algorithm either by increasing its arithmetic intensity or by increasing the <span data-only="hbm">memory</span><span data-only="network" hidden>network</span> bandwidth available.</p>
+  <details class="answer"><summary>✦ adaptation — Why does the sloping line turn into a flat roof?</summary>
+    <p>At arithmetic intensity Intensity(Computation), each byte transferred corresponds to Intensity(Computation) operations. A bandwidth of W bytes/s therefore supports at most W · Intensity(Computation) operations/s: doubling intensity doubles this limit. Once W · Intensity(Computation) reaches C, compute throughput becomes the limit. More bandwidth cannot increase throughput beyond C operations/s. Setting W · Intensity(Computation) = C gives the critical arithmetic intensity at Intensity(Computation) = C/W.</p>
+  </details>
+  <details class="answer" data-only="hbm"><summary>✦ adaptation — Why does a bigger batch move the point right?</summary>
+    <p>The same D × F weight matrix is reused for every token. Doubling B doubles the arithmetic but leaves the weight bytes unchanged. Only input and output traffic grows. When weight traffic dominates, this almost doubles operations per byte; at large B, growing activation traffic limits further improvement.</p>
+  </details>
+  <details class="answer" data-only="network" hidden><summary>✦ adaptation — Why does B cancel, while D still matters?</summary>
+    <p>Each chip sends B × F partial sums after doing B × D × F operations. The operation count and communication volume both scale linearly with B and F, so they cancel in BDF/(sBF). Increasing D instead lengthens each dot product without changing the output shape, giving more operations per transmitted element: Intensity(Computation) = D/s.</p>
+  </details>
+
+</section>
+
+<section id="matmul">
+  <h3>Matrix multiplication</h3>
+  <p data-only="hbm">Let's look at our soon-to-be favorite algorithm: matrix multiplication (aka matmul). Given two matrices X and Y, we can write X * Y → Z where X has shape bf16[B, D], Y has shape bf16[D, F], and Z has shape bf16[B, F].</p>
+  <div class="figure-controls">
+    <span>Batch B = <span class="t-var" data-var="B"></span></span><span>Input hidden size D = <span class="t-var" data-var="D"></span></span><span>Output hidden size F = <span class="t-var" data-var="F"></span></span>
+    <label>Precision <select data-select="precision" aria-label="Matmul precision"><option value="bf16">BF16</option><option value="fp8" data-only="gpu" hidden>FP8 → BF16 output</option><option value="int8" data-only="tpu">INT8 (assume 2× compute)</option><option value="weights8" data-only="tpu">INT8 weights, BF16 compute</option></select></label>
+  </div>
+  <div data-only="fp8" hidden>
+    <p>✦ adaptation — Our FP8 matmul reads inputs and weights in FP8 and writes the output in BF16. NVIDIA Tensor Cores multiply the FP8 operands and accumulate in higher precision. Compared with BF16, input and weight storage halve, while the output byte count stays the same.</p>
+    <details class="answer"><summary>✦ adaptation — What does the FP8 estimate include?</summary>
+      <p>E4M3 and E5M2 are eight-bit floating-point formats with different precision and range. Both use one byte per value. We count those values and the BF16 output, but omit scaling metadata, quantization work, and extra memory traffic. The selected rate is the GPU’s published dense FP8 Tensor Core throughput; the compute multiplier lets you estimate a lower achieved rate.</p>
+      <p data-only="network" hidden>The network still sends partial sums in the communication data type you selected. Choosing FP8 computation does not automatically quantize those messages.</p>
+    </details>
+  </div>
+  <p class="source-note" data-only="integerQuantized" hidden>✦ adaptation — The quantization exercises assume one byte per INT8 element and ignore scales, conversion work, and padding. The all-INT8 exercise assumes twice the BF16 operation rate; this is an exercise assumption, not a vendor INT8 specification. Weight-only quantization keeps the BF16 compute rate.</p>
+  <div data-only="hbm">
+    <div class="traffic" aria-label="Tensors read from and written to HBM">
+      <div class="traffic-box">HBM<small>X, Y → <span class="t-out" data-value="reads" data-format="bytes"></span></small></div>
+      <div class="traffic-link"><strong>⇄</strong><small><span class="t-out" data-value="bandwidth" data-format="bandwidth"></span></small></div>
+      <div class="traffic-box"><span data-value="computeUnit"></span><small>Z → <span class="t-out" data-value="writes" data-format="bytes"></span></small></div>
+    </div>
+    <p>For BF16 inputs and output, load 2BD + 2DF bytes, perform approximately 2BDF FLOPs, and write 2BF bytes back to HBM.<span class="footnote" id="note-ref-matmul"><button class="footnote-ref" data-note="matmul" aria-controls="note-matmul" aria-expanded="false" aria-label="Footnote: the matmul count">3</button><span class="footnote-body" id="note-matmul" role="note" hidden><strong>The matmul count.</strong> The exact arithmetic count is BF(2D − 1): D multiplications and D − 1 additions for each of B × F outputs. We use the conventional 2BDF approximation, assume each input is fetched once, and cast the result to BF16 before writing it to HBM. Real tiled kernels may read data more than once.</span></span></p>
+    <div class="eq">Intensity(matmul) = <span class="frac"><span>2BDF</span><span>2BD + 2DF + 2BF</span></span> = <span class="frac"><span>BDF</span><span>BD + DF + BF</span></span></div>
+    <div class="adaptation">
+      <p class="adaptation-label">✦ adaptation — Other precisions</p>
+    <p>For the selected precision, weights use w = <span class="t-out" data-value="qW"></span> bytes, inputs use a = <span class="t-out" data-value="qA"></span> bytes, and outputs use o = <span class="t-out" data-value="qO"></span> bytes. The same calculation becomes:</p>
+    <div class="eq">Intensity(Computation) = <span class="frac"><span>2BDF</span><span>aBD + wDF + oBF</span></span> = <span class="t-out" data-value="intensity" data-format="number"></span></div>
+    </div>
+    <p>We can get a nice simplification if we assume our "batch size" B is small relative to D and F. Then we get Intensity(Computation) ≈ 2B/w, or Intensity(Computation) ≈ B for BF16.</p>
+    <p>This is a reasonable assumption for Transformer matmuls since we typically have a local (per-replica) token batch size B &lt; 1024 (<em>note, not sequences</em>) but D and F &gt; 8000. Thus we generally become compute-bound when our per-replica batch size is greater than <span class="t-out" data-value="approximateCritical" data-format="number"></span> tokens, a very simple rule!</p>
+    <div class="takeaway"><strong>Takeaway:</strong> <span data-value="hbmTakeaway"></span></div>
+    <details class="answer"><summary>✦ adaptation — When does the small-batch approximation break down?</summary>
+      <p>The rule above assumes B is small relative to D and F, so weight transfers dominate HBM traffic. With Intensity(Computation) ≈ 2B/w, we need B ≳ w · Intensity(Accelerator) / 2 = <span class="t-out" data-value="approximateCritical" data-format="number"></span> tokens per batch. The takeaway above uses the full byte count for the selected dimensions.</p>
+      <p>The figures also count input reads and output writes, which use additional HBM bandwidth. <span data-value="hbmCrossoverExplanation"></span></p>
+      <p>Solving the full inequality gives B ≥ w · Intensity(Accelerator) · DF / [2DF − Intensity(Accelerator) · (aD + oF)], provided the denominator is positive. At large B, activation traffic matters, so intensity saturates at 2DF/(aD + oF) = <span class="t-out" data-value="asymptote" data-format="number"></span>. If that is no greater than Intensity(Accelerator), no finite batch reaches the compute ceiling.</p>
+      <p>Actual kernels break these matrices into smaller tiles that fit on-chip memory and may read data more than once. Let b<sub>m</sub> be a tile’s number of input rows, b<sub>k</sub> its summed dimension, and b<sub>n</sub> its number of output columns. For BF16, ignoring output writes and reuse between tiles, intensity is approximately b<sub>m</sub>b<sub>n</sub> / (b<sub>m</sub> + b<sub>n</sub>). This whole-matrix roofline is optimistic; profiling or a tile-level byte count makes it more accurate.</p>
+    </details>
+  </div>
+  <div data-only="network" hidden>
+    <p>To pick a somewhat contrived example, say we want to multiply two big matrices X ∼ <span data-value="inputType"></span>[B, D] and Y ∼ <span data-value="weightType"></span>[D, F] which are split evenly across 2 <span data-value="chipPlural"></span> (along the D dimension). To do this multiplication, we can multiply half of each matrix on each chip (Z₀ = X[:, :D // 2] @ Y[:D // 2, :] and Z₁ = X[:, D // 2:] @ Y[D // 2:, :]) and then copy the resulting "partial sums" to the other chip and add them together. Say we can copy <span class="t-out" data-value="bandwidth" data-format="bandwidth"></span> in each direction and perform <span class="t-out" data-value="C" data-format="rate"></span> on each chip. What are T<sub>math</sub> and T<sub>comms</sub>?</p>
+    <div class="traffic" aria-label="Two chips exchange their partial matrix products">
+      <div class="traffic-box"><span data-value="chipName"></span> 0<small>First half of D input features</small><small>Partial sums Z₀[B, F]</small></div>
+      <div class="traffic-link"><strong>⇄</strong><small><span class="t-out" data-value="bytes" data-format="bytes"></span> each way</small></div>
+      <div class="traffic-box"><span data-value="chipName"></span> 1<small>Second half of D input features</small><small>Partial sums Z₁[B, F]</small></div>
+    </div>
+    <p>T<sub>math</sub> is clearly half of what it was before, since each chip is doing half the work. Now what about T<sub>comms</sub>? This now refers to the communication time between chips! This is just the total bytes sent divided by the network bandwidth.</p>
+
+    <details class="answer"><summary>✦ adaptation — Partial-sum precision and network assumptions</summary><p>BF16 partial sums use two bytes per element. FP32 uses four<span data-only="tpu">; INT8 uses one</span>. Weight storage does not change this communication byte count. Sending and receiving happen simultaneously, so bandwidth is measured in one direction. Reduction arithmetic, quantization cost, and message latency are omitted.</p></details>
+    <div class="eq">T<sub>math</sub> = BDF/C; &nbsp; T<sub>comms</sub> = sBF/W</div>
+    <div class="eq">Intensity(matmul, 2 chips) = <span class="frac"><span>BDF</span><span>sBF</span></span> = D/s = <span class="t-out" data-value="intensity" data-format="number"></span></div>
+    <p>Note that, unlike before, the critical threshold now depends on D and not B! Try to think why that is. This is just one such example, but we highlight that this kind of roofline is critical to knowing when we can parallelize an operation across multiple <span data-value="chipPlural"></span>.</p>
+    <div class="takeaway"><strong>Takeaway:</strong> this two-chip matmul is compute-bound when D ≥ s · Intensity(Accelerator) = <span class="t-out" data-value="critical" data-format="number"></span>. <strong>Increasing batch size does not change this threshold.</strong></div>
+    <details class="answer"><summary>✦ adaptation — What does this say about a larger cluster?</summary>
+      <p>Only this two-chip exchange is modeled here. A larger collective has a different byte count, schedule, and topology. Recompute operations and traffic per participating chip, then compare with the matching bandwidth. Do not divide cluster-total FLOPs by one chip’s bandwidth, or multiply outgoing bandwidth by two because sends and receives overlap.</p>
+      <p>A full matmul followed by an exchange has no overlap. Overlapping computation and communication requires sending completed output tiles while computing others. Pipeline startup and completion, as well as data dependencies, can prevent some communication from overlapping computation. The overlap control illustrates the effect on execution time.</p>
+      <p>We’ll develop AllGather, ReduceScatter, and AllReduce costs for actual sharding schemes in <a href="index.html">How to Parallelize a Transformer for Training</a>.</p>
+    </details>
+  </div>
+
+</section>
+
+<section id="hardware-specs" class="adaptation">
+  <h3>✦ adaptation — The hardware numbers</h3>
+  <p>Every row uses dense BF16 throughput and <span data-value="tableBandwidthName"></span>. The peak arithmetic intensity Intensity(Accelerator) = C/W uses the published rates, before multipliers.</p>
+  <div class="tbl-wrap"><table class="tbl hardware-table"><thead><tr><th scope="col">Hardware</th><th scope="col">Dense BF16 / chip</th><th scope="col"><span data-value="tableBandwidthName"></span></th><th scope="col">Intensity(Accelerator) · FLOP/byte</th></tr></thead><tbody id="hardware-rows"></tbody></table></div>
+
+  <div data-only="network" hidden>
+    <p class="source-note" data-only="tpu">The ICI figure is the bandwidth of one link in one direction. The scale-out figure is a per-chip share of outgoing DCN bandwidth. The number and arrangement of links matter for larger collectives.</p>
+    <p class="source-note" data-only="gpu" hidden>NVLink is aggregate outgoing bandwidth per GPU. Scale-out is a per-GPU share of NIC bandwidth. The GB200 400 Gb/s NIC share is a reference configuration; equal rates do not guarantee equal performance for different communication patterns.</p>
+  </div>
+  <div data-only="gpu" hidden>
+    <p><strong>Why doesn’t GB300 automatically move the BF16 roof?</strong> The GB200 and GB300 rack specifications both list 360 PFLOP/s of sparse BF16 across 72 GPUs: 360 / 72 / 2 = 2.5 PFLOP/s dense per GPU.</p>
+    <p data-only="hbm">Both provide 8 TB/s HBM bandwidth per GPU, so this BF16 roof stays the same. GB300’s higher memory capacity and low-precision gains do not change the BF16 compute-to-HBM-bandwidth ratio.</p>
+    <p data-only="network" hidden>Both provide 900 GB/s one-way NVLink bandwidth per GPU, so that network roof stays the same. GB300’s 800 Gb/s per-GPU scale-out connection does change the scale-out roof relative to the 400 Gb/s GB200 reference configuration.</p>
+  </div>
+  <div class="source-note" data-only="gpu" hidden>
+    <p>NVIDIA’s Tensor Cores are its matrix multiplication units. We halve rates explicitly marked sparse; Rubin’s BF16 figure is already dense.<span data-only="network" hidden> NVLink send-plus-receive rates are divided by two. Gb/s NIC rates are divided by eight to get GB/s.</span></p>
+  </div>
+  <div data-only="rubin" hidden>
+    <h3 class="minor-heading" id="rubin-specs">Vera Rubin: preliminary GPU peak specifications</h3>
+    <p>NVIDIA’s linked datasheet lists <strong>4 PFLOP/s dense BF16 per Rubin GPU</strong>. It marks these specifications as preliminary, “up to,” and subject to change. This is the peak used by this preset.</p>
+    <p data-only="hbm">The same datasheet specifies <strong>22 TB/s HBM4 bandwidth</strong> per GPU. The approximate BF16 batch threshold is therefore 4 PFLOP/s ÷ 22 TB/s ≈ <strong>182 tokens</strong>; the full input/output traffic raises the exact threshold.</p>
+    <p data-only="network" hidden>NVLink 6 provides 3.6 TB/s bidirectional per GPU, giving <strong>1.8 TB/s outgoing</strong>. ConnectX-9 provides 1.6 Tb/s of scale-out connectivity per GPU, giving <strong>200 GB/s outgoing</strong>. As with the other presets, the pairwise model assumes that bandwidth is usable by this exchange.</p>
+    <p class="source-note">NVIDIA’s product webpage currently lists different bandwidth figures:<span data-only="hbm"> 19.2 TB/s HBM4 per GPU.</span><span data-only="network" hidden> 3 TB/s NVLink and 0.45 TB/s bidirectional scale-out per GPU.</span> This preset consistently uses the linked GPU datasheet and architecture articles. <a href="ROOFLINE-SOURCES.md#vera-rubin">See the dated sources and conversion details.</a></p>
+  </div>
+  <p class="source-note"><a href="ROOFLINE-SOURCES.md">See exact figures, sources, dates, and conventions</a>.</p>
+</section>
+
+<section id="problems" data-only="problems">
+  <h2>A Few Problems to Work</h2>
+  <p data-only="tpuProblems">These exercises use TPU v5e: 197 TFLOP/s BF16, 394 TOP/s INT8, and 820 GB/s HBM bandwidth. Each question specifies its own precision; B, D, and F follow the shared controls.</p>
+  <div class="exercise" data-only="tpuProblems">
+    <h3 class="question-heading">Question 1 [INT8 matmul]:</h3>
+    <p data-only="hbm">Say we want to do the matmul X[B, D] ·<sub>D</sub> Y[D, F] → Z[B, F] in int8 precision (1 byte per parameter) instead of bfloat16 (2 bytes per parameter) since TPUs can do matmuls faster in lower precision.</p>
+    <ol data-only="hbm"><li>How many bytes need to be loaded from memory? How many need to be written back to memory?</li><li>How many total OPs are performed?</li><li>What is the arithmetic intensity?</li><li>What is a roofline estimate for T<sub>math</sub> and T<sub>comms</sub>? What are reasonable upper and lower bounds for the runtime of the whole operation?</li></ol>
+    <p data-only="hbm">Assume our HBM bandwidth is 820 GB/s and our int8 peak OPs/s is <span class="t-out" data-value="q1C" data-format="rate"></span> (about 2x bfloat16).</p>
+
+    <details class="answer"><summary>Click here for the answer.</summary>
+      <div data-only="hbm"><ol>
+        <li>Because we're storing our parameters in int8, we have 1 byte per parameter, so we have BD + DF = <span class="t-out" data-value="q1reads" data-format="bytes"></span> loaded from HBM and BF = <span class="t-out" data-value="q1writes" data-format="bytes"></span> written back.</li>
+        <li>This is the same as in bfloat16, but in theory int8 OPs/s should be faster. So this is still 2BDF = <span class="t-out" data-value="q1ops" data-format="compact"></span> OPs.</li>
+        <li>Arithmetic intensity is 2BDF / (BD + DF + BF) = <span class="t-out" data-value="q1intensity" data-format="number"></span>. If we make the same assumption as above about B ≪ D and B ≪ F, we get an arithmetic intensity of 2B, meaning our rule becomes B &gt; HBM int8 arithmetic intensity / 2. Using the numbers given, our rule is B &gt; <span class="t-out" data-value="q1approximateCritical" data-format="number"></span>. Note that this is basically unchanged!</li>
+        <li>T<sub>math</sub> = 2BDF / <span class="t-out" data-value="q1C" data-format="compact"></span> = <span class="t-out" data-value="q1math" data-format="time"></span> and T<sub>comms</sub> = (BD + DF + BF) / W = <span class="t-out" data-value="q1transfer" data-format="time"></span>, so a reasonable lower bound is max(T<sub>math</sub>, T<sub>comms</sub>) = <span class="t-out" data-value="q1lower" data-format="time"></span> and an upper bound is T<sub>math</sub> + T<sub>comms</sub> = <span class="t-out" data-value="q1serial" data-format="time"></span>.</li>
+      </ol></div>
+
+      <button class="t-preset" data-example="int8">Use these precisions</button>
+    </details>
+  </div>
+  <div class="exercise" data-only="tpuProblems">
+    <h3 class="question-heading">Question 2 [INT8 weights + BF16 compute]:</h3>
+    <p data-only="hbm">In practice we often do different weight vs. activation quantization, so we might store our weights in very low precision but keep activations (and compute) in a higher precision. Say we want to quantize our weights in int8 but keep activations (and compute) in bfloat16. At what batch size do we become compute bound? Assume <span class="t-out" data-value="q2C" data-format="rate"></span>.</p>
+
+    <details class="answer"><summary>Click here for the answer.</summary>
+      <p data-only="hbm">Again assuming B is small, we have 2BDF bfloat16 FLOPs but only DF weight bytes (instead of 2DF in bfloat16). This means we become compute-bound when B &gt; <span class="t-out" data-value="q2approximateCritical" data-format="number"></span>. This is a lot lower, meaning if we can do int8 weight quantization (which is fairly easy to do) but still do bfloat16 FLOPs, we get a meaningful win in efficiency.</p>
+
+      <button class="t-preset" data-example="weights8">Use these precisions</button>
+    </details>
+  </div>
+  <div class="exercise" data-only="tpuProblems">
+    <h3 class="question-heading">Question 3 [exact byte counts]:</h3>
+    <p data-only="hbm">Taking the setup from Question 2, make a roofline plot of peak FLOPs/s vs. B for F = D = 4096 and F = D = 1024. <em>Use the exact number of bytes loaded, not an approximation.</em></p>
+
+    <details class="answer"><summary>Click here for the answer and interactive plot.</summary>
+      <div class="figure-panel widget">
+        <div class="figure-controls">B = <span class="t-var" data-var="B"></span> tokens</div>
+        <div class="legend"><span><i class="line-key"></i>D = F = 4096</span><span><i class="line-key orange"></i>D = F = 1024</span><span><i class="line-key peak"></i>BF16 compute ceiling</span></div>
+        <svg id="shape-plot" class="roof-chart" viewBox="0 0 760 350" role="img" aria-label="Throughput versus batch for two matrix shapes"></svg>
+        <div id="shape-inspect" class="chart-readout"></div>
+        <p class="eq-live">At this batch: <span class="t-out" data-value="bigThroughput" data-format="rate"></span> (4096) vs <span class="t-out" data-value="smallThroughput" data-format="rate"></span> (1024).</p>
+      </div>
+      <p>Both shapes eventually achieve the peak hardware FLOPs/s, but the larger D and F achieve it sooner. D = F = 4096 reaches the ceiling at 137 tokens; D = F = 1024 needs 227 tokens.</p>
+
+    </details>
+  </div>
+  <div class="exercise" data-only="gpuProblems" hidden>
+    <h3 class="question-heading">Question 4 [Memory Rooflines for GPUs]:</h3>
+    <p>Using the <a href="https://www.nvidia.com/en-us/data-center/h100/">spec sheet provided by NVIDIA for the H100 SXM</a>, calculate the batch size at which a bfloat16 matrix multiplication will become compute-bound. <em>Tensor Core FLOPs numbers marked “with sparsity” are twice the dense value because they require structured sparsity.</em></p>
+    <details class="answer"><summary>Click here for the answer.</summary>
+      <p>The reported BF16 throughput is 1,979 TFLOP/s with sparsity. The dense value is half that: 989.5 TFLOP/s. HBM bandwidth is 3.35 TB/s, so the approximate batch threshold is 989.5 / 3.35 ≈ 295 tokens. This weight-dominated approximation assumes B is small relative to D and F; include activation traffic for the exact threshold.</p>
+    </details>
+  </div>
+</section>
+  <p class="chapter-links">Next: <a href="index.html">How to Parallelize a Transformer for Training</a>, or read <a data-only="tpu" href="https://jax-ml.github.io/scaling-book/tpus/">How to Think About TPUs</a><a data-only="gpu" hidden href="https://jax-ml.github.io/scaling-book/gpus/">How to Think About GPUs</a>.</p>
+<aside class="footnotes" id="footnotes" aria-labelledby="footnotes-title"><h2 id="footnotes-title">Footnotes</h2><ol id="footnote-list"></ol></aside>
+<footer class="colophon">
+  <p>An interactive adaptation of <a href="https://jax-ml.github.io/scaling-book/roofline/">“All About Rooflines,”</a> Part 1 of <em>How to Scale Your Model</em>, by the authors credited above. Source text © 2022 Maruan Al-Shedivat, © 2025 Google LLC, reproduced and adapted under the <a href="LICENSE-scaling-book.txt">MIT License</a>. The <a href="source/roofline.md">source snapshot</a> and <a href="ROOFLINE-SOURCES.md">adaptation notes</a> document this edition.</p>
+  <p>Interactive edition by OpenAI Codex, following Bret Victor's <a href="https://worrydream.com/ExplorableExplanations/">Explorable Explanations</a>.</p>
+</footer>
+</main>
+<div class="toast" id="share-status" role="status" hidden></div>
+</body>
+</html>
